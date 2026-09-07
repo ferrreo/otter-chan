@@ -1,0 +1,10 @@
+{
+  "name": "microfrontend",
+  "version": "1.0.0",
+  "description": "TensorFlow Lite Micro audio frontend (log-mel features with noise suppression and PCAN) + kissfft int16, vendored for the microWakeWord detector. Apache-2.0 / BSD-3.",
+  "build": {
+    "srcDir": "src",
+    "srcFilter": ["+<*>", "-<kiss_fft.c>", "-<tools/kiss_fftr.c>", "-<tensorflow/lite/experimental/microfrontend/lib/*_io.c>"],
+    "flags": ["-Wno-unused-function", "-Wno-unused-variable", "-Wno-sign-compare"]
+  }
+}

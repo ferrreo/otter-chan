@@ -80,28 +80,7 @@ static void onMicFrame(const int16_t* s, size_t n, const VadResult& v) {
     }
 
     if (m == Mode::Standby && g_settings.wakeWord && wakeword::available()) {
-        // MultiNet is ~1.2x slower than real time here, so only feed it while someone is talking:
-        // a 256 ms pre-roll ring covers the onset, and a hangover keeps the tail of the phrase.
-        static int16_t pre[8][MIC_FRAME_SAMPLES];
-        static int prePos = 0, preCount = 0;
-        static uint32_t lastSpeechMs = 0;
-        static bool active = false;
-        uint32_t now = millis();
-        if (v.rms > fmaxf(VAD_MIN_RMS * 0.6f, v.noiseFloor * 2.2f)) lastSpeechMs = now;
-        bool talking = now - lastSpeechMs < 600;
-        if (talking && !active) {
-            active = true;
-            for (int i = 0; i < preCount; i++) wakeword::feed(pre[(prePos + 8 - preCount + i) % 8], MIC_FRAME_SAMPLES);
-            preCount = 0;
-        }
-        if (active) {
-            wakeword::feed(s, n);
-            if (!talking) active = false;
-        } else {
-            memcpy(pre[prePos], s, n * sizeof(int16_t));
-            prePos = (prePos + 1) % 8;
-            if (preCount < 8) preCount++;
-        }
+        wakeword::feed(s, n);   // on-device microWakeWord; nothing to ship
         return;
     }
     if (m == Mode::Standby && g_settings.wakeWord) {

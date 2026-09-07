@@ -5,7 +5,6 @@ Build with PlatformIO + [pioarduino](https://github.com/pioarduino/platform-espr
 ```bash
 pio run              # build
 pio run -t upload    # flash over USB (native USB CDC, /dev/ttyACM1)
-pio run -t upload_models   # once per board: flashes srmodels.bin (ESP-SR) to the `model` partition
 pio device monitor   # 115200 baud
 ```
 
@@ -19,7 +18,7 @@ pio device monitor   # 115200 baud
 | `face.cpp` | avatar renderer (PSRAM canvas, 30 fps), status bar, captions, bot cards |
 | `tracker.cpp` | GC0308 camera, motion centroid, server face assist, servo follow, scripted moves |
 | `behaviors.cpp` | LEDs, head-touch panel, IMU shake, idle fidgets |
-| `wakeword.cpp` | on-device wake word: ESP-SR MultiNet7 command mode fed from the mic task |
+| `wakeword.cpp`, `mww.cpp` | on-device wake word: microWakeWord streaming model + TFLM audio frontend (`lib/microfrontend`) |
 | `provisioning.cpp` | captive portal + serial JSON config |
 | `settings.cpp` | NVS settings |
 | `config.h` | pins, thresholds, tunables (tracking gains/signs, VAD, timeouts) |
