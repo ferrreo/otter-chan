@@ -7,4 +7,5 @@ void begin();                 // creates the canvas and starts the render task
 void setEnabled(bool on);     // pause rendering (sleep)
 void showText(const char* title, const char* body);  // non-face full-screen text (boot/info)
 void pokeReaction();          // eyes squint / bounce (touch)
+void markDirty();             // caption / bots / status changed: redraw the whole screen next frame
 }

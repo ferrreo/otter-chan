@@ -61,8 +61,10 @@ struct RobotState {
     void lock()   { xSemaphoreTake(mutex, portMAX_DELAY); }
     void unlock() { xSemaphoreGive(mutex); }
 
+    void (*onUiChange)() = nullptr;
     void setCaption(const String& s, uint32_t ms = 6000) {
         lock(); caption = s; captionUntilMs = ms ? millis() + ms : 0; unlock();
+        if (onUiChange) onUiChange();
     }
     void setExpression(Expression e, uint32_t ms = 0) {
         expression = e; expressionUntilMs = ms ? millis() + ms : 0;

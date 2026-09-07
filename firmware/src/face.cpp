@@ -13,6 +13,9 @@ M5Canvas g_canvas(&M5.Display);
 std::atomic<bool> g_enabled{false};
 SemaphoreHandle_t g_canvasMutex;
 std::atomic<uint32_t> g_pokeUntil{0};
+std::atomic<bool> g_uiDirty{true};      // status/caption/bots changed: push the whole frame
+// Only this rectangle animates every frame; the rest is pushed when it changes.
+constexpr int DYN_X = 20, DYN_Y = 28, DYN_W = 280, DYN_H = 178;
 
 constexpr int W = 320, H = 240;
 constexpr float DEG = 3.14159265f / 180.f;
@@ -53,7 +56,7 @@ Dust g_dust[4];
 
 void spawnSpark(Spark& s, float intensity) {
     s.angle = (esp_random() % 360) * DEG;
-    s.radius = 70 + (esp_random() % 40);
+    s.radius = 70 + (esp_random() % 28);   // stays inside the animated region
     s.speed = (0.4f + (esp_random() % 100) / 100.f) * (0.6f + intensity) * ((esp_random() & 1) ? 1 : -1);
     s.len = 12 + (esp_random() % 26);
     s.life = 1.f;
@@ -302,15 +305,41 @@ void drawFrame(uint32_t now) {
 
     float tgx = g_state.gazeX.load(), tgy = g_state.gazeY.load();
     if (m == Mode::Listening) { tgx *= 0.4f; tgy = -0.3f; }
+    if (!(tgx == tgx)) tgx = 0; if (!(tgy == tgy)) tgy = 0;   // NaN guards
     A.gx = lerp(A.gx, tgx, 0.15f); A.gy = lerp(A.gy, tgy, 0.15f);
-    A.mouth = lerp(A.mouth, g_state.mouthOpen.load(), 0.5f);
+    float mo = g_state.mouthOpen.load(); if (!(mo == mo)) mo = 0;
+    A.mouth = lerp(A.mouth, mo, 0.5f);
+    A.gx = fmaxf(-1.f, fminf(1.f, A.gx)); A.gy = fmaxf(-1.f, fminf(1.f, A.gy)); A.mouth = fmaxf(0.f, fminf(1.f, A.mouth));
+    static uint32_t lastFull = 0;
+    if (now - lastFull > 1000) { g_uiDirty = true; lastFull = now; }   // status bar / clock-ish things refresh at 1 Hz
+    static uint32_t frames = 0, lastHb = 0; frames++;
+    if (now - lastHb > 30000) { log_i("face: %.1f fps", frames * 1000.f / (now - lastHb)); lastHb = now; frames = 0; }
     float targetEx = m == Mode::Thinking ? 1.f : m == Mode::Speaking ? 0.7f : m == Mode::Listening ? 0.5f : (g_state.targetVisible ? 0.25f : 0.1f);
     if (now < g_pokeUntil) targetEx = 1.f;
     A.excite = lerp(A.excite, targetEx, 0.05f);
 
-    g_canvas.fillScreen(C_BG);
-    // soft panel behind the blob (like the Grok UI card)
-    g_canvas.fillRoundRect(24, 44, W - 48, 150, 18, C_PANEL);
+    static uint32_t tClear = 0, tBlob = 0, tSparks = 0, tUi = 0, tPush = 0, tN = 0;
+    static bool firstFrame = true;
+    uint32_t tt = micros();
+    bool full = firstFrame || g_uiDirty.exchange(false);
+    firstFrame = false;
+    if (full) {
+        g_canvas.fillScreen(C_BG);
+        g_canvas.fillRoundRect(24, 44, W - 48, 150, 18, C_PANEL);   // soft panel behind the blob (Grok UI card)
+    } else {
+        // the panel covers almost all of the animated region: paint it once, then only the margins in BG
+        g_canvas.fillRect(DYN_X, DYN_Y, DYN_W, DYN_H, C_PANEL);
+        g_canvas.fillRect(DYN_X, DYN_Y, DYN_W, 44 - DYN_Y, C_BG);                       // above the panel
+        g_canvas.fillRect(DYN_X, 194, DYN_W, DYN_Y + DYN_H - 194, C_BG);               // below the panel
+        g_canvas.fillRect(DYN_X, 44, 24 - DYN_X, 150, C_BG);                           // left margin
+        g_canvas.fillRect(W - 24, 44, DYN_X + DYN_W - (W - 24), 150, C_BG);            // right margin
+        for (int i = 0; i < 18; i++) {   // rounded corners of the panel
+            int inset = 18 - (int)sqrtf((float)(18 * 18 - (18 - i) * (18 - i)));
+            g_canvas.drawFastHLine(24, 44 + i, inset, C_BG); g_canvas.drawFastHLine(W - 24 - inset, 44 + i, inset, C_BG);
+            g_canvas.drawFastHLine(24, 193 - i, inset, C_BG); g_canvas.drawFastHLine(W - 24 - inset, 193 - i, inset, C_BG);
+        }
+    }
+    tClear += micros() - tt; tt = micros();
 
     // blob geometry: breathe + speech bounce + poke squash
     float breathe = sinf(now / 1100.f) * 2.f;
@@ -329,19 +358,23 @@ void drawFrame(uint32_t now) {
         if (s.life <= 0) s.alive = false;
     }
     for (auto& s : g_sparks) if (s.alive && sinf(s.angle) < 0) drawSpark(s, cx, cy, 1.f);
-    // dust
+    // dust (kept inside the animated region)
     for (int i = 0; i < 4; i++) {
         Dust& d = g_dust[i];
         d.x += d.vx; d.y += d.vy;
-        if (d.x < 20 || d.x > W - 20) d.vx = -d.vx;
-        if (d.y < 50 || d.y > 190) d.vy = -d.vy;
+        if (d.x < DYN_X + 4 || d.x > DYN_X + DYN_W - 4) d.vx = -d.vx;
+        if (d.y < DYN_Y + 4 || d.y > DYN_Y + DYN_H - 4) d.vy = -d.vy;
         g_canvas.fillCircle((int)d.x, (int)d.y, (int)d.r, rgb(200, 200, 210));
     }
-    // blob with subtle edge
-    g_canvas.fillEllipse(cx, cy + 3, rx + 2, ry + 2, rgb(30, 30, 34));
+    tSparks += micros() - tt; tt = micros();
+    // blob with a subtle edge (outline instead of a second filled ellipse: PSRAM fills are slow)
     g_canvas.fillEllipse(cx, cy, rx, ry, C_BLOB);
+    g_canvas.drawEllipse(cx, cy, rx, ry, rgb(200, 200, 206));
+    g_canvas.drawEllipse(cx, cy + 1, rx + 1, ry + 1, rgb(40, 40, 46));
     drawEyes(cx, cy, e, m, open, now);
+    tBlob += micros() - tt; tt = micros();
     for (auto& s : g_sparks) if (s.alive && sinf(s.angle) >= 0) drawSpark(s, cx, cy, 1.f);
+    tSparks += micros() - tt; tt = micros();
 
     // mode extras
     if (m == Mode::Thinking) {
@@ -368,7 +401,19 @@ void drawFrame(uint32_t now) {
     statusBar(m, now);
     botsRow(now);
     bubble(now, cy + ry);
-    g_canvas.pushSprite(0, 0);
+    tUi += micros() - tt; tt = micros();
+    if (full) {
+        g_canvas.pushSprite(0, 0);
+    } else {
+        M5.Display.setClipRect(DYN_X, DYN_Y, DYN_W, DYN_H);   // pushSprite honours the clip: only this region is sent
+        g_canvas.pushSprite(0, 0);
+        M5.Display.clearClipRect();
+    }
+    tPush += micros() - tt; tN++;
+    if (tN == 100) {
+        log_i("face cost/frame ms: clear %.1f blob %.1f sparks %.1f ui %.1f push %.1f", tClear / 100000.f, tBlob / 100000.f, tSparks / 100000.f, tUi / 100000.f, tPush / 100000.f);
+        tClear = tBlob = tSparks = tUi = tPush = tN = 0;
+    }
 }
 
 void renderTask(void*) {
@@ -379,7 +424,7 @@ void renderTask(void*) {
             drawFrame(millis());
             xSemaphoreGive(g_canvasMutex);
         }
-        vTaskDelay(pdMS_TO_TICKS(50));   // 20 fps leaves room for the wake-word detector on this core
+        vTaskDelay(pdMS_TO_TICKS(12));
     }
 }
 
@@ -390,13 +435,10 @@ namespace face {
 void begin() {
     initPalette();
     g_canvasMutex = xSemaphoreCreateMutex();
-    g_canvas.setColorDepth(16);
+    g_canvas.setColorDepth(8);     // RGB332 in PSRAM: half the memory traffic of 16-bit; the palette is flat anyway
     g_canvas.setPsram(true);
-    if (!g_canvas.createSprite(W, H)) {
-        g_canvas.setColorDepth(8);
-        g_canvas.createSprite(W, H);
-    }
-    xTaskCreatePinnedToCoreWithCaps(renderTask, "face", 8192, nullptr, 2, nullptr, 1, MALLOC_CAP_SPIRAM);   // stack in PSRAM: internal RAM is for WiFi/TLS
+    g_canvas.createSprite(W, H);
+    xTaskCreatePinnedToCore(renderTask, "face", 8192, nullptr, 1, nullptr, 1);   // internal stack, shares core 1 fairly with the main loop
 }
 
 void setEnabled(bool on) { g_enabled = on; }
@@ -417,5 +459,6 @@ void showText(const char* title, const char* body) {
 }
 
 void pokeReaction() { g_pokeUntil = millis() + 500; }
+void markDirty() { g_uiDirty = true; }
 
 }  // namespace face

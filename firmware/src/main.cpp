@@ -249,6 +249,7 @@ static void onServerJson(JsonDocument& d) {
         }
         g_state.botCount = n;
         g_state.unlock();
+        face::markDirty();
     } else if (!strcmp(type, "notify")) {
         audio::playChime(4);
         leds::set(leds::Pattern::Notify, 0, 0, 0, 4000);
@@ -341,6 +342,7 @@ void setup() {
     M5StackChan.begin();          // M5.begin() + touch panel + IO expander (servo power, LEDs) + servos + INA226
     M5.Display.setBrightness(g_settings.brightness);
     face::begin();
+    g_state.onUiChange = face::markDirty;
     face::showText("otter-chan", ("fw " OTTER_FW_VERSION "\nbooting..."));
 
     g_wakeBuf = (int16_t*)heap_caps_malloc(WAKE_CLIP_SAMPLES * sizeof(int16_t), MALLOC_CAP_SPIRAM);

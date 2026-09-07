@@ -164,7 +164,7 @@ void detectTask(void*) {
             log_i("mww: %.1f ms per 32 ms frame, max prob %u/255, internal heap %u", cnt ? acc / 1000.f / cnt : 0.f, g_lastMax, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
             acc = cnt = 0; g_lastMax = 0;
         }
-        taskYIELD();
+        vTaskDelay(1);
     }
 }
 
@@ -179,7 +179,7 @@ bool begin() {
     const size_t streamBytes = AUDIO_RATE * sizeof(int16_t);
     uint8_t* storage = (uint8_t*)heap_caps_malloc(streamBytes + 1, MALLOC_CAP_SPIRAM);
     g_stream = xStreamBufferCreateStatic(streamBytes, 1, storage, &g_streamCtl);
-    xTaskCreatePinnedToCoreWithCaps(detectTask, "mww", 8192, nullptr, 3, nullptr, 1, MALLOC_CAP_SPIRAM);
+    xTaskCreatePinnedToCoreWithCaps(detectTask, "mww", 8192, nullptr, 5, nullptr, 0, MALLOC_CAP_SPIRAM);   // core 0 (WiFi core): leaves core 1 to audio, face and the main loop
     g_ok = true; g_enabled = true;
     return true;
 }
