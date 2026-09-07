@@ -95,6 +95,9 @@ type Session struct {
 	done  chan struct{}
 
 	endAfterReply atomic.Bool
+
+	pendMu        sync.Mutex
+	pendingText   string // question captured inside the wake clip; answered on the next listen_start
 }
 
 func (h *Hub) Serve(ws *websocket.Conn, name string) {
@@ -200,6 +203,23 @@ func (s *Session) onJSON(d map[string]any) {
 		s.listening = true
 		s.umu.Unlock()
 		s.cancel.Store(false)
+		s.pendMu.Lock()
+		pending := s.pendingText
+		s.pendingText = ""
+		s.pendMu.Unlock()
+		if pending != "" {
+			// the wake clip already contained the question: answer it instead of listening again
+			s.umu.Lock()
+			s.listening = false
+			s.umu.Unlock()
+			s.startPipeline(func(ctx context.Context) {
+				s.SendJSON(s.J("thinking"))
+				s.SendJSON(s.J("transcript", "text", pending, "final", true))
+				if _, err := s.RespondTo(ctx, pending, nil); err != nil && !errors.Is(err, context.Canceled) {
+					s.fail(err)
+				}
+			})
+		}
 	case "listen_end":
 		s.umu.Lock()
 		s.listening = false
@@ -275,6 +295,11 @@ func (s *Session) wakeCheck(pcm []byte) {
 	ok, score := wake.Matches(text, s.hub.deps.Cfg.WakePhrases, s.hub.deps.Cfg.WakeThreshold)
 	log.Printf("wake clip -> %q score=%d wake=%v", text, score, ok)
 	if ok && s.State() == "standby" {
+		if rest := wake.Remainder(text, s.hub.deps.Cfg.WakePhrases); rest != "" {
+			s.pendMu.Lock()
+			s.pendingText = rest
+			s.pendMu.Unlock()
+		}
 		s.SendJSON(s.J("wake"))
 	}
 }

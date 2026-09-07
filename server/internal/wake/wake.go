@@ -79,3 +79,19 @@ var aliasRe = regexp.MustCompile(`(?i)\b(tark?w?in|tarquine|torquin|darkwin|tark
 func Normalize(text, canonical string) string {
 	return aliasRe.ReplaceAllString(text, canonical)
 }
+
+// Remainder returns what was said after the wake phrase, or "" if the clip was only the wake phrase.
+// "Hey Tarquin, how are you?" -> "how are you?"
+func Remainder(text string, phrases []string) string {
+	t := Normalize(text, "tarquin")
+	lower := strings.ToLower(t)
+	idx := strings.LastIndex(lower, "tarquin")
+	if idx < 0 {
+		return ""
+	}
+	rest := strings.TrimLeft(t[idx+len("tarquin"):], " ,.!?;:-")
+	if len(strings.Fields(rest)) < 2 {
+		return ""
+	}
+	return rest
+}

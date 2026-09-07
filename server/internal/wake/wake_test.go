@@ -21,3 +21,17 @@ func TestNormalize(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestRemainder(t *testing.T) {
+	cases := map[string]string{
+		"Hey Taquin, how you doing?": "how you doing?",
+		"Tarquin.":                   "",
+		"ok tarquin what time is it":  "what time is it",
+		"tarquin yes":                 "",
+	}
+	for in, want := range cases {
+		if got := Remainder(in, nil); got != want {
+			t.Errorf("%q -> %q want %q", in, got, want)
+		}
+	}
+}

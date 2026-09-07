@@ -139,7 +139,7 @@ func Load() (*Config, error) {
 		STTURL:        strings.TrimRight(env("OTTER_STT_URL", "http://127.0.0.1:8080"), "/"),
 		TTSEngine:     env("OTTER_TTS_ENGINE", "piper"),
 		PiperBin:      env("OTTER_PIPER_BIN", "piper"),
-		PiperModel:    env("OTTER_PIPER_MODEL", "/opt/piper/voices/en_GB-alan-medium.onnx"),
+		PiperModel:    env("OTTER_PIPER_MODEL", "/opt/piper/voices/en_GB-northern_english_male-medium.onnx"),
 		PiperSpeed:    envFloat("OTTER_PIPER_SPEED", 1.0),
 		VoxBin:        env("OTTER_VOX_BIN", "otter-vox"),
 		VoxVoice:      env("OTTER_VOX_VOICE", "audio8-en-calm"),

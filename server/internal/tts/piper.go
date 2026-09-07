@@ -96,6 +96,9 @@ func (p *Piper) Synthesize(ctx context.Context, text string) ([]byte, error) {
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err() // cancelled by the caller (user spoke again); not a failure
+		}
 		return nil, fmt.Errorf("piper: %v: %s", err, strings.TrimSpace(lastLine(errb.String())))
 	}
 	raw := out.Bytes()
