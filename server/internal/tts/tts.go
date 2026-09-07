@@ -38,6 +38,7 @@ type Engine struct {
 	serveBad bool
 
 	firstTimeout time.Duration
+	skip         int // renders abandoned by a cancelled caller; their WAVs are still coming
 }
 
 func New(bin, voice string, args []string, rate, cacheDir string) *Engine {
@@ -136,10 +137,28 @@ func (e *Engine) viaServe(ctx context.Context, text string) (*audio.WAV, error) 
 			return nil, err
 		}
 	}
+	// Drain results of renders that a cancelled caller walked away from.
+	for e.skip > 0 {
+		if _, err := e.readWAV(ctx, e.timeout()); err != nil {
+			return nil, err
+		}
+		e.skip--
+	}
 	if _, err := io.WriteString(e.stdin, text+"\n"); err != nil {
 		e.stop()
 		return nil, err
 	}
+	w, err := e.readWAV(ctx, e.timeout())
+	if err != nil {
+		return nil, err
+	}
+	e.serveOK = true
+	return w, nil
+}
+
+// readWAV waits for one WAV from the serve process. A caller cancel leaves the process alone
+// (the render finishes in the background and is drained later); a timeout or read error restarts it.
+func (e *Engine) readWAV(ctx context.Context, timeout time.Duration) (*audio.WAV, error) {
 	type res struct {
 		w   *audio.WAV
 		err error
@@ -159,13 +178,13 @@ func (e *Engine) viaServe(ctx context.Context, text string) (*audio.WAV, error) 
 			}
 			return nil, r.err
 		}
-		e.serveOK = true
 		return r.w, nil
-	case <-time.After(e.timeout()):
+	case <-time.After(timeout):
 		e.stop()
 		return nil, errors.New("tts timeout")
 	case <-ctx.Done():
-		e.stop()
+		e.skip++
+		go func() { <-ch }() // let the reader goroutine finish; result is drained on the next call
 		return nil, ctx.Err()
 	}
 }
