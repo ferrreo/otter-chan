@@ -45,105 +45,156 @@ void initPalette() {
     C_CHIP        = rgb(30, 30, 36);
 }
 
-// ---------------------------------------------------------------- particles
-struct Spark {
-    float angle, radius, speed, len, life, hue;   // hue = palette index (float for blending)
-    bool alive;
-};
-Spark g_sparks[7];
-struct Dust { float x, y, vx, vy, r; };
-Dust g_dust[4];
+// ---------------------------------------------------------------- blob shape
+// The blob is a closed radial curve r(t) = R * (1 + sum_k a_k * cos(k*t + p_k)), scaled per axis,
+// filled by scanline. Harmonics animate smoothly between presets so it wobbles, squashes and morphs.
+constexpr int HARM = 5;               // harmonics 1..5
+constexpr int POLY_N = 56;
+struct Shape { float a[HARM]; float p[HARM]; float sx, sy; float rot; };
+Shape g_shape = {{0, 0, 0, 0, 0}, {0, 0, 0, 0, 0}, 1.f, 1.f, 0.f};
+Shape g_target = g_shape;
+float g_shapeVel[HARM] = {0};
+uint32_t g_nextMorph = 0;
+float g_wob = 0;                     // wobble phase
+float g_jelly = 0, g_jellyVel = 0;   // spring for pokes / speech
+float g_px = 0, g_py = 0, g_pvx = 0, g_pvy = 0;   // drift offset + velocity
 
-void spawnSpark(Spark& s, float intensity) {
-    s.angle = (esp_random() % 360) * DEG;
-    s.radius = 70 + (esp_random() % 28);   // stays inside the animated region
-    s.speed = (0.4f + (esp_random() % 100) / 100.f) * (0.6f + intensity) * ((esp_random() & 1) ? 1 : -1);
-    s.len = 12 + (esp_random() % 26);
-    s.life = 1.f;
-    s.hue = esp_random() % 6;
-    s.alive = true;
+// presets: (a1..a5), sx, sy
+void pickPreset(int which, Shape& t) {
+    for (int i = 0; i < HARM; i++) { t.a[i] = 0; t.p[i] = (esp_random() % 628) / 100.f; }
+    t.sx = t.sy = 1.f; t.rot = 0;
+    switch (which) {
+        case 0: break;                                              // circle
+        case 1: t.a[3] = 0.06f; break;                              // squircle-ish
+        case 2: t.a[0] = 0.07f; t.sy = 1.08f; break;                // egg
+        case 3: t.a[1] = 0.10f; t.rot = (esp_random() % 314) / 100.f; break;   // oval, random angle
+        case 4: t.a[2] = 0.07f; t.a[4] = 0.03f; break;              // wobbly triangle-ish
+        case 5: t.sx = 1.12f; t.sy = 0.90f; break;                  // squashed
+        case 6: t.sx = 0.92f; t.sy = 1.10f; break;                  // stretched tall
+        case 7: t.a[1] = 0.05f; t.a[2] = 0.04f; t.a[3] = 0.03f; break;   // lumpy
+    }
 }
 
-void drawSpark(const Spark& s, int cx, int cy, float scale) {
-    // arc drawn as beads with a colour gradient and a fading tail
-    RGB a = kPal[(int)s.hue], b = kPal[((int)s.hue + 1) % 6];
-    int beads = (int)(s.len / 3);
-    float alpha = clamp01(s.life * 1.4f);
-    for (int i = 0; i < beads; i++) {
-        float t = (float)i / beads;
-        float ang = s.angle - t * (s.len / s.radius) * (s.speed > 0 ? 1 : -1);
-        float rr = s.radius * scale;
-        int x = cx + (int)(cosf(ang) * rr), y = cy + (int)(sinf(ang) * rr * 0.85f);
-        RGB c = mix(a, b, t);
-        float k = alpha * (1.f - t * 0.8f);
-        c = mix({C_BG >> 8 & 0xF8, (C_BG >> 3) & 0xFC, (C_BG << 3) & 0xF8}, c, k);
-        int r = (int)(3.f * (1.f - t * 0.6f));
-        if (r < 1) r = 1;
-        g_canvas.fillCircle(x, y, r, rgb(c));
+void stepShape(float dt) {
+    for (int i = 0; i < HARM; i++) {
+        // spring toward target amplitude (under-damped: it overshoots = jelly)
+        float acc = (g_target.a[i] - g_shape.a[i]) * 40.f - g_shapeVel[i] * 6.f;
+        g_shapeVel[i] += acc * dt;
+        g_shape.a[i] += g_shapeVel[i] * dt;
+        g_shape.p[i] = lerp(g_shape.p[i], g_target.p[i], 2.f * dt);
+    }
+    g_shape.sx = lerp(g_shape.sx, g_target.sx, 3.f * dt);
+    g_shape.sy = lerp(g_shape.sy, g_target.sy, 3.f * dt);
+    g_shape.rot = lerp(g_shape.rot, g_target.rot, 2.f * dt);
+    float jacc = -g_jelly * 180.f - g_jellyVel * 9.f;
+    g_jellyVel += jacc * dt; g_jelly += g_jellyVel * dt;
+    g_wob += dt;
+}
+
+// Scanline-fill the blob polygon (plus outline). cx/cy centre, R base radius.
+void drawBlob(int cx, int cy, float R, uint16_t fill, uint16_t edge, float mouthBulge) {
+    float xs[POLY_N], ys[POLY_N];
+    float squash = 1.f + g_jelly;
+    for (int i = 0; i < POLY_N; i++) {
+        float t = i * (2.f * 3.14159265f / POLY_N);
+        float r = 1.f;
+        for (int k = 0; k < HARM; k++) r += g_shape.a[k] * cosf((k + 1) * t + g_shape.p[k]);
+        r += 0.012f * sinf(3.f * t + g_wob * 2.1f) + 0.010f * sinf(5.f * t - g_wob * 1.7f);   // idle wobble
+        // speaking: lower half bulges with the mouth
+        if (mouthBulge > 0.f && sinf(t) > 0.f) r += mouthBulge * 0.12f * sinf(t);
+        float x = cosf(t) * r * g_shape.sx * (1.f + 0.5f * (squash - 1.f) * -1.f), y = sinf(t) * r * g_shape.sy * squash;
+        float c = cosf(g_shape.rot), sn = sinf(g_shape.rot);
+        xs[i] = cx + (x * c - y * sn) * R;
+        ys[i] = cy + (x * sn + y * c) * R;
+    }
+    int ymin = H, ymax = 0;
+    for (int i = 0; i < POLY_N; i++) { ymin = min(ymin, (int)floorf(ys[i])); ymax = max(ymax, (int)ceilf(ys[i])); }
+    for (int y = max(0, ymin); y <= min(H - 1, ymax); y++) {
+        float xl = 1e9f, xr = -1e9f;
+        for (int i = 0; i < POLY_N; i++) {
+            int j = (i + 1) % POLY_N;
+            float y0 = ys[i], y1 = ys[j];
+            if ((y >= y0 && y < y1) || (y >= y1 && y < y0)) {
+                float x = xs[i] + (y - y0) * (xs[j] - xs[i]) / (y1 - y0);
+                xl = fminf(xl, x); xr = fmaxf(xr, x);
+            }
+        }
+        if (xr >= xl) g_canvas.drawFastHLine((int)xl, y, (int)(xr - xl) + 1, fill);
+    }
+    for (int i = 0; i < POLY_N; i++) {
+        int j = (i + 1) % POLY_N;
+        g_canvas.drawLine((int)xs[i], (int)ys[i], (int)xs[j], (int)ys[j], edge);
     }
 }
 
 // ---------------------------------------------------------------- eyes
-// A pill eye: centre (x,y), half-length L, radius r, tilt in degrees (positive = top leans right)
-void pill(int x, int y, float L, int r, float tilt, uint16_t col) {
+// Parametric eye: capsule of half-length L and thickness T, tilted; `arc` bends it into a smile/frown
+// crescent; `dot` rounds it into a circle. Everything is interpolated so shapes morph.
+struct Eye { float L, T, tilt, arc, dot; uint16_t col; };
+Eye g_eyeL = {16, 7, 12, 0, 0, 0}, g_eyeR = {16, 7, -12, 0, 0, 0};
+
+void lerpEye(Eye& e, const Eye& t, float k) {
+    e.L = lerp(e.L, t.L, k); e.T = lerp(e.T, t.T, k); e.tilt = lerp(e.tilt, t.tilt, k);
+    e.arc = lerp(e.arc, t.arc, k); e.dot = lerp(e.dot, t.dot, k); e.col = t.col;
+}
+
+void capsule(int x, int y, float L, float r, float tilt, uint16_t col) {
     float dx = sinf(tilt * DEG) * L, dy = cosf(tilt * DEG) * L;
-    if (L < 1.f) { g_canvas.fillCircle(x, y, r, col); return; }
+    if (L < 1.f) { g_canvas.fillCircle(x, y, (int)r, col); return; }
     g_canvas.drawWideLine(x - dx, y - dy, x + dx, y + dy, r, col);
 }
 
-// blob squash/eye positions
+void drawEye(int x, int y, const Eye& e, float open, uint16_t bg) {
+    float T = fmaxf(1.5f, e.T * open);
+    float L = e.L * (0.4f + 0.6f * open) * (1.f - e.dot);
+    float r = lerp(T, fmaxf(T, e.L * 0.9f), e.dot);   // dot: grow round
+    if (fabsf(e.arc) > 0.05f) {
+        // crescent: capsule with a bg-coloured capsule cut out on the inner side
+        float k = e.arc;
+        capsule(x, y, e.L, T + 2, 90.f, e.col);
+        capsule(x, y + (k > 0 ? -1 : 1) * (T + 2) * 0.9f, e.L + 2, T + 2, 90.f, bg);
+        if (open < 0.2f) capsule(x, y, e.L, 2, 90.f, e.col);
+        return;
+    }
+    capsule(x, y, L, r, e.tilt, e.col);
+}
+
+// Target eye shapes per expression / mode; idle "looks" add variety.
+void targetEyes(Expression e, Mode m, uint32_t now, Eye& tl, Eye& tr) {
+    uint16_t col = C_EYE;
+    tl = {16, 7, 12, 0, 0, col}; tr = {16, 7, -12, 0, 0, col};
+    switch (e) {
+        case Expression::Happy:  tl.arc = 1; tr.arc = 1; break;
+        case Expression::Love:   tl.arc = 1; tr.arc = 1; tl.col = tr.col = rgb(255, 90, 140); break;
+        case Expression::Sad:    tl.tilt = -22; tr.tilt = 22; tl.L = tr.L = 13; break;
+        case Expression::Angry:  tl.tilt = 40; tr.tilt = -40; tl.L = tr.L = 13; tl.T = tr.T = 6; break;
+        case Expression::Surprised: tl.dot = tr.dot = 1; tl.L = tr.L = 12; tl.T = tr.T = 6; break;
+        case Expression::Sleepy: tl.T = tr.T = 2.5f; tl.tilt = tr.tilt = 90; tl.L = tr.L = 12; break;
+        case Expression::Confused: tl.tilt = 4; tr.tilt = -32; tr.L = 12; break;
+        case Expression::Thinking: tl.L = 14; tr.L = 10; tr.T = 6; break;
+        case Expression::Wink:   tr.T = 2.5f; tr.tilt = 90; tr.L = 10; break;
+        case Expression::Error:  tl.col = tr.col = rgb(255, 80, 80); tl.tilt = 45; tr.tilt = -45; tl.L = tr.L = 9; break;
+        default: {
+            // neutral: cycle through small idle looks every few seconds
+            int look = (now / 3500) % 6;
+            if (look == 1) { tl.tilt = 4; tr.tilt = -4; }                       // straighter
+            else if (look == 2) { tl.L = tr.L = 12; tl.T = tr.T = 8; }          // chubbier
+            else if (look == 3) { tl.tilt = 20; tr.tilt = 8; }                  // glance
+            else if (look == 4) { tl.dot = tr.dot = 0.35f; }                    // rounder
+        }
+    }
+    if (m == Mode::Listening) { tl.T = tr.T = 8; tl.L = tr.L = 18; tl.dot = tr.dot = 0.15f; }
+    if (m == Mode::Thinking && e == Expression::Thinking) { tl.tilt = 6; tr.tilt = -6; }
+    if (m == Mode::Sleep) { tl.T = tr.T = 2; tl.tilt = tr.tilt = 90; }
+}
+
 struct Anim {
     float blink = 0;
     uint32_t nextBlink = 0, blinkStart = 0;
     float gx = 0, gy = 0;
     float mouth = 0;
-    float bob = 0;
-    float excite = 0;   // 0..1 drives spark intensity
+    uint32_t lastMs = 0;
 } A;
-
-void drawEyes(int cx, int cy, Expression e, Mode m, float open, uint32_t now) {
-    int ex = 30;                          // eye spacing from centre
-    int ey = cy - 4;
-    int r = 7;                             // pill radius
-    float L = 16 * open;                   // half length
-    float tiltL = 12, tiltR = -12;         // default: slight inward lean (top toward centre)
-    uint16_t col = C_EYE;
-    int gx = (int)(A.gx * 14), gy = (int)(A.gy * 8);
-    float bounce = A.mouth * 4;
-
-    switch (e) {
-        case Expression::Happy:  L = 10 * open; tiltL = 35; tiltR = -35; ey -= 2; break;
-        case Expression::Love:   col = rgb(255, 90, 140); L = 12 * open; tiltL = 30; tiltR = -30; break;
-        case Expression::Sad:    tiltL = -22; tiltR = 22; ey += 4; break;
-        case Expression::Angry:  tiltL = 40; tiltR = -40; L = 13 * open; break;
-        case Expression::Surprised: L = 0; r = 11; break;
-        case Expression::Sleepy: L = 12; r = 3; tiltL = 90; tiltR = 90; break;   // flat dashes
-        case Expression::Confused: tiltL = 5; tiltR = -30; break;
-        case Expression::Thinking: tiltL = 8; tiltR = -8; gy -= 6; gx += 6; break;
-        case Expression::Wink:   break;
-        case Expression::Error:  col = rgb(255, 80, 80); break;
-        default: break;
-    }
-    if (m == Mode::Listening) { r = 8; L = 18 * open; }
-    if (m == Mode::Speaking) { L = lerp(L, 10, A.mouth * 0.5f); }
-
-    int lx = cx - ex + gx, rx = cx + ex + gx, y = ey + gy - (int)bounce;
-    if (e == Expression::Error) {
-        for (int s = -1; s <= 1; s += 2) {
-            int x = s < 0 ? lx : rx;
-            pill(x, y, 10, 3, 45, col); pill(x, y, 10, 3, -45, col);
-        }
-        return;
-    }
-    if (e == Expression::Wink) {
-        pill(lx, y, L, r, tiltL, col);
-        pill(rx, y, 10, 3, 90, col);
-        return;
-    }
-    pill(lx, y, L, r, tiltL, col);
-    pill(rx, y, L, r, tiltR, col);
-    if (e == Expression::Surprised) { g_canvas.fillCircle(lx - 3, y - 3, 3, C_BLOB); g_canvas.fillCircle(rx - 3, y - 3, 3, C_BLOB); }
-}
 
 // ---------------------------------------------------------------- top status
 void statusBar(Mode m, uint32_t now) {
@@ -314,9 +365,6 @@ void drawFrame(uint32_t now) {
     if (now - lastFull > 1000) { g_uiDirty = true; lastFull = now; }   // status bar / clock-ish things refresh at 1 Hz
     static uint32_t frames = 0, lastHb = 0; frames++;
     if (now - lastHb > 30000) { log_i("face: %.1f fps", frames * 1000.f / (now - lastHb)); lastHb = now; frames = 0; }
-    float targetEx = m == Mode::Thinking ? 1.f : m == Mode::Speaking ? 0.7f : m == Mode::Listening ? 0.5f : (g_state.targetVisible ? 0.25f : 0.1f);
-    if (now < g_pokeUntil) targetEx = 1.f;
-    A.excite = lerp(A.excite, targetEx, 0.05f);
 
     static uint32_t tClear = 0, tBlob = 0, tSparks = 0, tUi = 0, tPush = 0, tN = 0;
     static bool firstFrame = true;
@@ -341,66 +389,84 @@ void drawFrame(uint32_t now) {
     }
     tClear += micros() - tt; tt = micros();
 
-    // blob geometry: breathe + speech bounce + poke squash
-    float breathe = sinf(now / 1100.f) * 2.f;
-    float squash = 1.f;
-    if (now < g_pokeUntil) { float t = 1.f - (g_pokeUntil - now) / 500.f; squash = 1.f - 0.15f * sinf(t * 3.14159f); }
-    int cx = W / 2 + (int)(A.gx * 6), cy = 120 + (int)breathe - (int)(A.mouth * 6);
-    int rx = 78, ry = (int)(78 * squash);
-    if (m == Mode::Listening) { float p = 0.5f + 0.5f * sinf(now / 180.f); g_canvas.fillEllipse(cx, cy, rx + 6 + (int)(p * 4), ry + 6 + (int)(p * 4), rgb(70 + (int)(p * 40), 20, 40)); }
-    if (m == Mode::Sleep) { rx = 74; ry = 70; }
+    float dt = A.lastMs ? fminf(0.1f, (now - A.lastMs) / 1000.f) : 0.033f;
+    A.lastMs = now;
 
-    // sparks behind the blob first (those with sin(angle) < 0), then blob, then the rest
-    for (auto& s : g_sparks) {
-        if (!s.alive) { if ((esp_random() % 1000) < (uint32_t)(A.excite * 60 + 2)) spawnSpark(s, A.excite); continue; }
-        s.angle += s.speed * 0.05f * (0.5f + A.excite);
-        s.life -= 0.006f + (1.f - A.excite) * 0.01f;
-        if (s.life <= 0) s.alive = false;
+    // ---- shape behaviour per mode ----
+    if (now > g_nextMorph) {
+        int preset = (m == Mode::Standby || m == Mode::Muted) ? (int)(esp_random() % 8) : 0;
+        pickPreset(preset, g_target);
+        g_nextMorph = now + 3000 + esp_random() % 5000;
     }
-    for (auto& s : g_sparks) if (s.alive && sinf(s.angle) < 0) drawSpark(s, cx, cy, 1.f);
-    // dust (kept inside the animated region)
-    for (int i = 0; i < 4; i++) {
-        Dust& d = g_dust[i];
-        d.x += d.vx; d.y += d.vy;
-        if (d.x < DYN_X + 4 || d.x > DYN_X + DYN_W - 4) d.vx = -d.vx;
-        if (d.y < DYN_Y + 4 || d.y > DYN_Y + DYN_H - 4) d.vy = -d.vy;
-        g_canvas.fillCircle((int)d.x, (int)d.y, (int)d.r, rgb(200, 200, 210));
+    if (m == Mode::Listening) { g_target.sx = 1.04f; g_target.sy = 1.04f + 0.03f * sinf(now / 300.f); g_target.rot = 0; }
+    else if (m == Mode::Thinking) { g_target.a[1] = 0.09f; g_target.rot = 0.25f * sinf(now / 900.f); g_target.sx = g_target.sy = 1.f; }
+    else if (m == Mode::Speaking) { g_target.sy = 1.f + 0.06f * A.mouth; g_target.sx = 1.f - 0.03f * A.mouth; }
+    else if (m == Mode::Sleep) { g_target.sx = 1.10f; g_target.sy = 0.86f; g_target.rot = 0; }
+    stepShape(dt);
+    if (now < g_pokeUntil && g_jellyVel == 0.f && g_jelly == 0.f) g_jellyVel = -2.2f;   // poke: squash then bounce
+    static float lastMouth = 0;
+    if (A.mouth - lastMouth > 0.25f) g_jellyVel += 0.6f * (A.mouth - lastMouth);          // syllable kicks
+    lastMouth = A.mouth;
+
+    // ---- drift: slow wander around the panel, spring back, lean toward the gaze target ----
+    float wantX = 24.f * A.gx + 10.f * sinf(now / 2300.f) + 6.f * sinf(now / 4100.f + 1.f);
+    float wantY = -8.f * A.gy + 5.f * sinf(now / 1900.f + 2.f) + 2.f * sinf(now / 1100.f);
+    if (m == Mode::Listening) { wantX *= 0.5f; wantY = -6.f; }
+    if (m == Mode::Sleep) { wantX = 0; wantY = 14.f; }
+    g_pvx += ((wantX - g_px) * 18.f - g_pvx * 5.f) * dt;
+    g_pvy += ((wantY - g_py) * 18.f - g_pvy * 5.f) * dt;
+    g_px += g_pvx * dt; g_py += g_pvy * dt;
+
+    int cx = W / 2 + (int)g_px, cy = 119 + (int)g_py;
+    float R = 74.f;
+    if (m == Mode::Listening) {   // soft pulsing halo
+        float pz = 0.5f + 0.5f * sinf(now / 180.f);
+        g_canvas.fillEllipse(cx, cy, (int)(R * 1.10f + pz * 4), (int)(R * 1.10f + pz * 4), rgb(70 + (int)(pz * 40), 20, 40));
     }
     tSparks += micros() - tt; tt = micros();
-    // blob with a subtle edge (outline instead of a second filled ellipse: PSRAM fills are slow)
-    g_canvas.fillEllipse(cx, cy, rx, ry, C_BLOB);
-    g_canvas.drawEllipse(cx, cy, rx, ry, rgb(200, 200, 206));
-    g_canvas.drawEllipse(cx, cy + 1, rx + 1, ry + 1, rgb(40, 40, 46));
-    drawEyes(cx, cy, e, m, open, now);
+    drawBlob(cx, cy, R, C_BLOB, rgb(200, 200, 206), m == Mode::Speaking ? A.mouth : 0.f);
+
+    // ---- eyes: morph toward the target shape, follow the gaze, blink ----
+    Eye tl, tr; targetEyes(e, m, now, tl, tr);
+    lerpEye(g_eyeL, tl, 6.f * dt); lerpEye(g_eyeR, tr, 6.f * dt);
+    int ex = 30, ey = cy - 6 + (int)(A.gy * 8) - (int)(A.mouth * 4);
+    int gxo = (int)(A.gx * 14);
+    float sq = 1.f + g_jelly;   // eyes squash with the body
+    ey = cy + (int)((ey - cy) * sq);
+    drawEye(cx - ex + gxo, ey, g_eyeL, open, C_BLOB);
+    drawEye(cx + ex + gxo, ey, g_eyeR, open, C_BLOB);
+    if (open < 0.08f && g_eyeL.arc < 0.05f) {
+        capsule(cx - ex + gxo, ey, 16, 2.5f, 90.f, C_EYE);
+        capsule(cx + ex + gxo, ey, 16, 2.5f, 90.f, C_EYE);
+    }
     tBlob += micros() - tt; tt = micros();
-    for (auto& s : g_sparks) if (s.alive && sinf(s.angle) >= 0) drawSpark(s, cx, cy, 1.f);
-    tSparks += micros() - tt; tt = micros();
 
-    // mode extras
+    // ---- mode ornaments ----
     if (m == Mode::Thinking) {
         for (int d = 0; d < 3; d++) {
             float ph = fmodf(now / 320.f - d * 0.33f, 1.f);
-            g_canvas.fillCircle(cx + rx + 16 + d * 10, cy - ry + 8, 2 + (int)(2 * (1 - ph)), rgb(mix(kPal[2], {40, 40, 46}, ph)));
+            g_canvas.fillCircle(cx + (int)R + 16 + d * 10, cy - (int)R + 8, 2 + (int)(2 * (1 - ph)), rgb(mix(kPal[2], {40, 40, 46}, ph)));
         }
     } else if (m == Mode::Listening) {
         float l = g_state.micLevel;
         for (int i = 0; i < 7; i++) {
             float h = 2 + l * 16 * fabsf(sinf(now / 90.f + i * 0.9f));
-            g_canvas.fillRoundRect(cx - 24 + i * 8, cy + ry + 8, 5, (int)h, 2, rgb(255, 110, 140));
+            g_canvas.fillRoundRect(cx - 24 + i * 8, cy + (int)R + 6, 5, (int)h, 2, rgb(255, 110, 140));
         }
     } else if (m == Mode::Sleep) {
         g_canvas.setFont(&fonts::DejaVu12); g_canvas.setTextColor(C_DIM, C_BG); g_canvas.setTextDatum(middle_center);
         int zy = (now / 70) % 30;
-        g_canvas.drawString("z", cx + rx + 10, cy - 20 - zy);
-        g_canvas.drawString("Z", cx + rx + 24, cy - 40 - zy / 2);
+        g_canvas.drawString("z", cx + (int)R + 10, cy - 20 - zy);
+        g_canvas.drawString("Z", cx + (int)R + 24, cy - 40 - zy / 2);
     } else if (m == Mode::Muted) {
         g_canvas.setFont(&fonts::Font0); g_canvas.setTextColor(rgb(255, 100, 100), C_PANEL); g_canvas.setTextDatum(middle_center);
-        g_canvas.drawString("muted", cx, cy + ry + 14);
+        g_canvas.drawString("muted", cx, cy + (int)R + 12);
     }
+    tSparks += micros() - tt; tt = micros();
 
     statusBar(m, now);
     botsRow(now);
-    bubble(now, cy + ry);
+    bubble(now, cy + (int)R);
     tUi += micros() - tt; tt = micros();
     if (full) {
         g_canvas.pushSprite(0, 0);
@@ -417,7 +483,6 @@ void drawFrame(uint32_t now) {
 }
 
 void renderTask(void*) {
-    for (auto& d : g_dust) { d.x = 40 + esp_random() % 240; d.y = 60 + esp_random() % 120; d.vx = ((int)(esp_random() % 100) - 50) / 400.f; d.vy = ((int)(esp_random() % 100) - 50) / 400.f; d.r = 1 + esp_random() % 2; }
     for (;;) {
         if (g_enabled) {
             xSemaphoreTake(g_canvasMutex, portMAX_DELAY);
