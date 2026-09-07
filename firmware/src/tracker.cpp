@@ -45,9 +45,9 @@ camera_config_t makeConfig(pixformat_t fmt) {
     c.pixel_format = fmt;
     c.frame_size = (CAM_W == 640) ? FRAMESIZE_VGA : FRAMESIZE_QVGA;
     c.jpeg_quality = 12;
-    c.fb_count = 2;
+    c.fb_count = 1;                       // one buffer + grab-when-empty: the DVP DMA idles between polls
     c.fb_location = CAMERA_FB_IN_PSRAM;
-    c.grab_mode = CAMERA_GRAB_LATEST;
+    c.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
     c.sccb_i2c_port = 1;
     return c;
 }
@@ -161,7 +161,7 @@ void trackTask(void*) {
             if (fb) toLuma(fb, g_cur);
             // face-detect assist: ship a small JPEG to the server now and then
             uint32_t now = millis();
-            if (fb && TRK_ASSIST_MS && net::connected() && now - lastAssist > TRK_ASSIST_MS) {
+            if (fb && TRK_ASSIST_MS && net::connected() && now - lastAssist >= TRK_ASSIST_MS) {
                 uint8_t* jpg = nullptr; size_t jl = 0;
                 if (frameToJpegPsram(fb, TRK_ASSIST_JPEG_Q, &jpg, &jl)) {
                     bool ok = net::sendBin(BIN_TRACK_JPEG, jpg, jl, true);
@@ -215,7 +215,7 @@ void trackTask(void*) {
                 g_pauseUntil = now + 1500;
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(60));
+        vTaskDelay(pdMS_TO_TICKS(TRK_POLL_MS));
     }
 }
 
@@ -234,7 +234,11 @@ bool begin() {
     // GC0308 advertises GRAYSCALE but delivers short frames (61440 != 76800); RGB565 is reliable
     // and toLuma() extracts luminance from it.
     camera_config_t cfg = makeConfig(PIXFORMAT_RGB565);
+#ifdef OTTER_NO_CAMERA
+    esp_err_t err = ESP_FAIL;   // experiment: measure audio without the DVP DMA running
+#else
     esp_err_t err = esp_camera_init(&cfg);
+#endif
     if (err == ESP_OK) {
         sensor_t* s = esp_camera_sensor_get();
         if (s) { s->set_vflip(s, 0); s->set_hmirror(s, 0); }

@@ -94,6 +94,7 @@ type Session struct {
 	queue chan queued
 	done  chan struct{}
 
+	sentBytes     atomic.Int64 // PCM bytes sent since say_start
 	endAfterReply atomic.Bool
 
 	pendMu      sync.Mutex
@@ -409,6 +410,7 @@ func (s *Session) RespondTo(ctx context.Context, text string, images [][]byte) (
 				continue
 			}
 			if !started {
+				s.sentBytes.Store(0)
 				s.SendJSON(s.J("say_start", "text", j.sentence, "expression", j.expr, "followup", followup))
 				started = true
 			} else {
@@ -436,7 +438,7 @@ func (s *Session) RespondTo(ctx context.Context, text string, images [][]byte) (
 		s.SendJSON(s.J("say_start", "text", "", "expression", "neutral", "followup", false))
 	}
 	end := s.endAfterReply.Swap(false) || dismissRe.MatchString(text)
-	s.SendJSON(s.J("say_end", "followup", followup && started && !end, "end", end))
+	s.SendJSON(s.J("say_end", "followup", followup && started && !end, "end", end, "bytes", s.sentBytes.Load()))
 	if err == nil {
 		err = sayErr
 	}
@@ -494,6 +496,7 @@ func (s *Session) streamTTS(ctx context.Context, sentence string) error {
 
 // streamPCM sends PCM in chunks, paced so the robot's buffer stays leadSeconds ahead of real time.
 func (s *Session) streamPCM(ctx context.Context, pcm []byte) error {
+	defer s.sentBytes.Add(int64(len(pcm)))
 	t0 := time.Now()
 	sent := 0.0
 	rate := float64(s.hub.deps.Cfg.AudioRate)

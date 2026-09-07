@@ -43,6 +43,7 @@ static bool g_conversation = false;     // wake word / button opened a session: 
 static bool g_endRequested = false;     // server asked to close the session after this reply
 static uint32_t g_sayStartedAt = 0;
 static bool g_sayEnded = false;
+static size_t g_sayTotalBytes = 0;   // from say_end; 0 = unknown (older server)
 static uint32_t g_loopMaxMs = 0, g_loopLast = 0;
 // captions arrive ahead of their audio; reveal each one when playback reaches its byte offset
 struct PendingCaption { String text; size_t atBytes; };
@@ -222,6 +223,7 @@ static void onServerJson(JsonDocument& d) {
         setMode(Mode::Speaking);
     } else if (!strcmp(type, "say_end")) {
         g_sayEnded = true;
+        g_sayTotalBytes = d["bytes"] | 0;
         g_followupPending = d["followup"] | g_followupPending;
         if (d["end"] | false) g_endRequested = true;
     } else if (!strcmp(type, "expression")) {
@@ -442,7 +444,9 @@ void loop() {
 
     // ---- end of speech ----
     if (m == Mode::Speaking) revealCaptions();
-    if (m == Mode::Speaking && g_sayEnded && audio::isPlaybackIdle()) {
+    // finished only when every byte the server sent has been played (a dry spell must not end it early)
+    bool allPlayed = g_sayTotalBytes == 0 || audio::bytesReceived() >= g_sayTotalBytes;
+    if (m == Mode::Speaking && g_sayEnded && allPlayed && audio::isPlaybackIdle()) {
         revealCaptions();
         g_state.mouthOpen = 0.f;
         if (g_endRequested) { g_conversation = false; g_endRequested = false; audio::playChime(1); setMode(Mode::Standby); g_state.setCaption("", 1); }

@@ -62,8 +62,9 @@ constexpr float    CAM_VFOV_DEG        = 48.0f;
 constexpr float    TRK_GAIN            = 0.55f;   // fraction of the angular error corrected per step
 constexpr int      TRK_YAW_SIGN        = 1;       // flip if the head turns away from you
 constexpr int      TRK_PITCH_SIGN      = 1;
-constexpr uint32_t TRK_LOST_MS         = 6000;    // return to home after this long without target
-constexpr uint32_t TRK_ASSIST_MS       = 1500;     // server face-detect assist interval (0 = off)
+constexpr uint32_t TRK_LOST_MS         = 12000;    // return to home after this long without target
+constexpr uint32_t TRK_POLL_MS         = 2000;    // camera poll interval; slow on purpose, audio comes first
+constexpr uint32_t TRK_ASSIST_MS       = 2000;    // server face-detect assist interval (0 = off)
 constexpr int      TRK_ASSIST_JPEG_Q   = 30;
 
 // ---- Servo ranges (BSP units: 10 = 1 degree) ----
