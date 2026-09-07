@@ -22,8 +22,9 @@ No Python at runtime. Speech runs on CPU via ggml (parakeet.cpp for STT, otter-v
 - **Wake word "tarquin"** (hands-free): on-device VAD ships short clips, server transcribes + fuzzy-matches.
 - **Butler**: Muse Spark 1.3 (contributor tier by default) with tools: message bots, read bot status,
   take and look at a photo (multimodal), timers, notes/memory, gestures, lights, volume, sleep, tracking.
-- **TTS**: Audio8 zero-shot clone, "tarquin" voice from a public-domain English male narrator; sentence
-  streaming so speech starts while the model is still writing. Follow-up window re-opens the mic after a reply.
+- **TTS**: piper by default (native, ~25× real time on CPU, British male voices `en_GB-alan-medium` /
+  `en_GB-northern_english_male-medium`), or `OTTER_TTS_ENGINE=vox` for the Audio8 zero-shot "tarquin" clone
+  (needs a strong GPU to be quick). Sentence streaming starts speech while the model is still writing.
 - **Screen**: animated robot face (blinks, gaze follows you, mouth syncs to speech, expressions from the
   LLM) plus live cards for each Grok bot's activity (coding cursor, browsing globe, thinking dots…).
 - **Tracking**: camera motion centroid on-device + server face detection (pure Go, pigo) → head follows you;
@@ -80,8 +81,8 @@ Factory firmware can be restored any time with M5Burner.
 
 ## Notes
 
-- CPU TTS is the slow part (Audio8 0.6b on 8 threads ≈ 2–3× real time). Sentence streaming hides
-  most of it; a Vulkan GPU makes it faster than real time.
+- piper is instant. The Audio8 clone (`OTTER_TTS_ENGINE=vox`) is 2–3× slower than real time on CPU and
+  needs a proper GPU (an Intel UHD 630 is slower than the CPU); a first Vulkan run compiles shaders for ~1 min.
 - Muse Spark always reasons: `OTTER_LLM_REASONING=minimal` keeps replies snappy (~2 s, ~120 hidden tokens; `low` roughly doubles that).
 - otter-vox needs the headless `--serve --no-play -o -` patch (in this repo's sibling otter-vox tree);
   without it the server falls back to spawning otter-vox per sentence, which reloads the model each time.

@@ -22,7 +22,13 @@ type Config struct {
 	LLMReasoning string
 	LLMAPIKey    string
 
-	STTURL   string // parakeet-server base URL, e.g. http://stt:8080
+	STTURL string // parakeet-server base URL, e.g. http://stt:8080
+
+	TTSEngine  string  // piper (fast, default) | vox (Audio8 clone via otter-vox)
+	PiperBin   string  // piper binary
+	PiperModel string  // voice .onnx
+	PiperSpeed float64 // length_scale; 1.0 = normal
+
 	VoxBin   string // otter-vox binary
 	VoxVoice string
 	VoxArgs  []string // extra args (e.g. --cpu, --cpu-threads 8, --model-dir ...)
@@ -48,6 +54,13 @@ func envBool(key string, def bool) bool {
 		return def
 	}
 	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
+func envFloat(key string, def float64) float64 {
+	if f, err := strconv.ParseFloat(env(key, ""), 64); err == nil {
+		return f
+	}
+	return def
 }
 
 func envInt(key string, def int) int {
@@ -124,6 +137,10 @@ func Load() (*Config, error) {
 		LLMReasoning:  env("OTTER_LLM_REASONING", "minimal"),
 		LLMAPIKey:     ResolveMetaKey(),
 		STTURL:        strings.TrimRight(env("OTTER_STT_URL", "http://127.0.0.1:8080"), "/"),
+		TTSEngine:     env("OTTER_TTS_ENGINE", "piper"),
+		PiperBin:      env("OTTER_PIPER_BIN", "piper"),
+		PiperModel:    env("OTTER_PIPER_MODEL", "/opt/piper/voices/en_GB-alan-medium.onnx"),
+		PiperSpeed:    envFloat("OTTER_PIPER_SPEED", 1.0),
 		VoxBin:        env("OTTER_VOX_BIN", "otter-vox"),
 		VoxVoice:      env("OTTER_VOX_VOICE", "audio8-en-calm"),
 		VoxArgs:       strings.Fields(env("OTTER_VOX_ARGS", "--cpu")),

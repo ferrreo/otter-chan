@@ -24,7 +24,7 @@ type API struct {
 	Store *store.Store
 	Hub   *device.Hub
 	STT   *stt.Client
-	TTS   *tts.Engine
+	TTS   tts.Synth
 	LLM   *llm.Client
 }
 
@@ -86,7 +86,7 @@ func (a *API) status(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	writeJSON(w, 200, map[string]any{
 		"robot": robot, "bots": a.Store.Bots(0), "timers": a.Store.Timers(), "you": ident(r),
-		"stt": a.STT.Healthy(ctx), "tts": a.TTS.Healthy(), "llm": a.Cfg.LLMAPIKey != "", "model": a.Cfg.LLMModel,
+		"stt": a.STT.Healthy(ctx), "tts": a.TTS.Healthy(), "tts_engine": a.TTS.Name(), "llm": a.Cfg.LLMAPIKey != "", "model": a.Cfg.LLMModel,
 	})
 }
 

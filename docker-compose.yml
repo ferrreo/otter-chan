@@ -18,6 +18,10 @@ services:
       OTTER_LLM_REASONING: ${OTTER_LLM_REASONING:-minimal}
       OTTER_NAME: ${OTTER_NAME:-Tarquin}
       OTTER_WAKE_PHRASES: ${OTTER_WAKE_PHRASES:-tarquin,hey tarquin,ok tarquin}
+      # TTS: piper (fast native, default) or vox (Audio8 zero-shot clone; slow without a strong GPU)
+      OTTER_TTS_ENGINE: ${OTTER_TTS_ENGINE:-piper}
+      OTTER_PIPER_MODEL: ${OTTER_PIPER_MODEL:-/opt/piper/voices/en_GB-alan-medium.onnx}
+      OTTER_PIPER_SPEED: ${OTTER_PIPER_SPEED:-1.0}
       OTTER_VOX_VOICE: ${OTTER_VOX_VOICE:-tarquin}
       # Vulkan on the host's Intel/AMD GPU via /dev/dri (mesa ANV/RADV in the image). Set
       # OTTER_VOX_ARGS="--cpu --cpu-threads 8" to run without a GPU.

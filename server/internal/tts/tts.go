@@ -257,6 +257,8 @@ func (e *Engine) checkVoice() {
 	e.Voice = FallbackVoice
 }
 
+func (e *Engine) Name() string { return "otter-vox:" + e.Voice }
+
 func (e *Engine) Healthy() bool {
 	_, err := exec.LookPath(e.Bin)
 	return err == nil

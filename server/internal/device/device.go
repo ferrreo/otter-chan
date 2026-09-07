@@ -41,7 +41,7 @@ type Deps struct {
 	Cfg   *config.Config
 	Store *store.Store
 	STT   *stt.Client
-	TTS   *tts.Engine
+	TTS   tts.Synth
 	LLM   *llm.Client
 }
 

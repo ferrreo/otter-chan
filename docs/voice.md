@@ -1,5 +1,10 @@
 # Tarquin's voice
 
+Default engine is **piper** (`OTTER_TTS_ENGINE=piper`, voice `OTTER_PIPER_MODEL`, speed `OTTER_PIPER_SPEED`).
+The image ships `en_GB-alan-medium` and `en_GB-northern_english_male-medium`; any voice from
+[rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) works if you add it to the Dockerfile.
+The rest of this page is about the Audio8 clone used when `OTTER_TTS_ENGINE=vox`.
+
 TTS is [otter-vox](https://github.com/pika-os) (Audio8 TTS 0.6b on ggml, zero-shot voice cloning).
 A clone is a reference clip encoded to codec codes plus its exact transcript. otter-vox ships two
 embedded clones (`fer`, `audio8-en-calm`); this project adds runtime-loadable clones from

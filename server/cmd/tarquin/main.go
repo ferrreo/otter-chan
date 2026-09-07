@@ -30,7 +30,12 @@ func main() {
 	}
 	st := store.Open(cfg.DataDir)
 	sttc := stt.New(cfg.STTURL, cfg.AudioRate)
-	ttse := tts.New(cfg.VoxBin, cfg.VoxVoice, cfg.VoxArgs, strconv.Itoa(cfg.AudioRate), cfg.DataDir+"/tts_cache")
+	var ttse tts.Synth
+	if cfg.TTSEngine == "vox" {
+		ttse = tts.New(cfg.VoxBin, cfg.VoxVoice, cfg.VoxArgs, strconv.Itoa(cfg.AudioRate), cfg.DataDir+"/tts_cache")
+	} else {
+		ttse = tts.NewPiper(cfg.PiperBin, cfg.PiperModel, cfg.AudioRate, cfg.DataDir+"/tts_cache", cfg.PiperSpeed)
+	}
 	brain := llm.New(cfg.LLMBaseURL, cfg.LLMModel, cfg.LLMReasoning, cfg.LLMAPIKey, cfg.Name, st)
 	hub := device.NewHub(device.Deps{Cfg: cfg, Store: st, STT: sttc, TTS: ttse, LLM: brain})
 	authz := auth.Resolver{Tokens: cfg.Tokens}
@@ -68,7 +73,7 @@ func main() {
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-	log.Printf("Tarquin listening on %s — model %s, voice %s, stt %s", addr, cfg.LLMModel, cfg.VoxVoice, cfg.STTURL)
+	log.Printf("Tarquin listening on %s — model %s, tts %s, stt %s", addr, cfg.LLMModel, ttse.Name(), cfg.STTURL)
 	if cfg.LLMAPIKey == "" {
 		log.Printf("WARNING: no Meta API key (META_MODEL_API_KEY / ~/.config/muse/auth.json)")
 	}
@@ -78,7 +83,7 @@ func main() {
 }
 
 // warm starts the resident TTS process so the first reply doesn't pay the model load.
-func warm(t *tts.Engine) {
+func warm(t tts.Synth) {
 	if err := t.Warm(context.Background()); err != nil {
 		log.Printf("tts warm-up: %v", err)
 	}

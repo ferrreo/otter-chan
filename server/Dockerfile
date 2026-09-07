@@ -19,12 +19,23 @@ RUN printf 'Types: deb\nURIs: https://ppa.pika-os.com/\nSuites: pika\nComponents
     && apt-get update \
     && apt-get install -y --no-install-recommends otter-vox otter-vox-model libvulkan1 mesa-vulkan-drivers \
     && rm -rf /var/lib/apt/lists/*
+# piper (rhasspy) — fast native TTS, default engine. British male voices from rhasspy/piper-voices.
+ARG PIPER_VERSION=2023.11.14-2
+RUN mkdir -p /opt/piper/voices && cd /opt/piper \
+    && curl -fsSL "https://github.com/rhasspy/piper/releases/download/${PIPER_VERSION}/piper_linux_x86_64.tar.gz" | tar xz --strip-components=1 \
+    && ln -s /opt/piper/piper /usr/local/bin/piper \
+    && for v in alan/medium/en_GB-alan-medium northern_english_male/medium/en_GB-northern_english_male-medium; do \
+         f=$(basename "$v"); d=$(dirname "$v"); \
+         curl -fsSL -o "/opt/piper/voices/$f.onnx" "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/$d/$f.onnx"; \
+         curl -fsSL -o "/opt/piper/voices/$f.onnx.json" "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/$d/$f.onnx.json"; \
+       done
 COPY --from=build /out/tarquin /usr/local/bin/tarquin
 # extra voices (e.g. tarquin.codes + tarquin.txt) are read from the model dir's voices/ folder
 COPY deploy/voices/ /usr/share/otter-shell/models/vox/audio8/voices/
 RUN useradd -r -m -d /var/lib/tarquin tarquin && mkdir -p /data && chown tarquin /data
 USER tarquin
 ENV OTTER_HOST=0.0.0.0 OTTER_PORT=8480 OTTER_DATA_DIR=/data OTTER_STT_URL=http://stt:8080 \
+    OTTER_TTS_ENGINE=piper OTTER_PIPER_MODEL=/opt/piper/voices/en_GB-alan-medium.onnx \
     OTTER_VOX_BIN=/usr/bin/otter-vox OTTER_VOX_ARGS="--cpu --cpu-threads 8" HOME=/var/lib/tarquin \
     MESA_SHADER_CACHE_DIR=/data/mesa_cache XDG_CACHE_HOME=/data/cache
 EXPOSE 8480
