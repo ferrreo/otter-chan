@@ -19,7 +19,9 @@ No Python at runtime. Speech runs on CPU via ggml (parakeet.cpp for STT, otter-v
 - **Side button**: click = open mic until you stop talking; click again = close mic; double-click = hard
   mute (wake word off); hold = sleep / wake. The bottom button is the hardware reset line and cannot be
   intercepted by software (it reboots), so sleep lives on the side button hold and on `/api/sleep`.
-- **Wake word "tarquin"** (hands-free): on-device VAD ships short clips, server transcribes + fuzzy-matches.
+- **Wake word "tarquin"** (hands-free, on-device): Espressif MultiNet7 runs on the ESP32-S3 with
+  "tarquin" / "hey tarquin" / "ok tarquin" as commands, ~200 ms, no network. Falls back to shipping
+  short clips for server-side matching if the model partition is empty.
 - **Butler**: Muse Spark 1.3 (contributor tier by default) with tools: message bots, read bot status,
   take and look at a photo (multimodal), timers, notes/memory, gestures, lights, volume, sleep, tracking.
 - **TTS**: piper by default (native, ~25× real time on CPU, British male voices `en_GB-alan-medium` /
@@ -69,6 +71,7 @@ Local run: `cp .env.example .env`, fill it, `docker compose up --build`.
 cd firmware
 cp secrets.ini.example secrets.ini   # optional compile-time WiFi/server defaults
 pio run -t upload                    # /dev/ttyACM1 by default; ~/.local/bin/pio if installed via uv
+pio run -t upload_models             # once: ESP-SR models (3.3 MB) into the `model` partition
 pio device monitor
 ```
 

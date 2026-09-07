@@ -25,6 +25,7 @@
 #include "tracker.h"
 #include "behaviors.h"
 #include "provisioning.h"
+#include "wakeword.h"
 
 // ---------------------------------------------------------------- listening state
 static SemaphoreHandle_t g_utterMutex;
@@ -78,8 +79,12 @@ static void onMicFrame(const int16_t* s, size_t n, const VadResult& v) {
         return;
     }
 
+    if (m == Mode::Standby && g_settings.wakeWord && wakeword::available()) {
+        wakeword::feed(s, n);   // on-device MultiNet; no clips to ship
+        return;
+    }
     if (m == Mode::Standby && g_settings.wakeWord) {
-        // keep a small pre-roll so the start of the wake phrase isn't clipped
+        // server-side fallback: keep a small pre-roll so the start of the wake phrase isn't clipped
         for (size_t i = 0; i < n; i++) { g_preBuf[g_prePos] = s[i]; g_prePos = (g_prePos + 1) % WAKE_PRE_SAMPLES; }
         uint32_t now = millis();
         if (!g_wakeCapturing) {
@@ -343,6 +348,7 @@ void setup() {
     bool wantPortal = M5.BtnPWR.isPressed() || !g_settings.hasWifi();
     if (wantPortal) provisioning::startPortal();   // never returns (reboots)
 
+    wakeword::begin();
     audio::begin(onMicFrame);
     audio::setVolume(g_settings.volume);
     net::begin(onServerJson, onServerBin);
@@ -385,6 +391,15 @@ void loop() {
             case Mode::Muted:     setMode(Mode::Standby); break;
             default: break;
         }
+    }
+
+    // ---- on-device wake word ----
+    if (wakeword::wasDetected() && m == Mode::Standby && net::connected()) {
+        g_conversation = true; g_endRequested = false;
+        audio::playChime(0);
+        g_state.setExpression(Expression::Surprised, 800);
+        setMode(Mode::Listening);
+        return;
     }
 
     // ---- connection state ----
