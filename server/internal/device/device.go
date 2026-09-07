@@ -96,8 +96,8 @@ type Session struct {
 
 	endAfterReply atomic.Bool
 
-	pendMu        sync.Mutex
-	pendingText   string // question captured inside the wake clip; answered on the next listen_start
+	pendMu      sync.Mutex
+	pendingText string // question captured inside the wake clip; answered on the next listen_start
 }
 
 func (h *Hub) Serve(ws *websocket.Conn, name string) {

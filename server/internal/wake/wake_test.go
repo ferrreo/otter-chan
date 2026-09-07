@@ -26,8 +26,8 @@ func TestRemainder(t *testing.T) {
 	cases := map[string]string{
 		"Hey Taquin, how you doing?": "how you doing?",
 		"Tarquin.":                   "",
-		"ok tarquin what time is it":  "what time is it",
-		"tarquin yes":                 "",
+		"ok tarquin what time is it": "what time is it",
+		"tarquin yes":                "",
 	}
 	for in, want := range cases {
 		if got := Remainder(in, nil); got != want {

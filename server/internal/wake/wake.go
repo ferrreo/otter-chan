@@ -9,7 +9,7 @@ import (
 var clean = regexp.MustCompile(`[^a-z0-9 ]+`)
 
 // Aliases: common mis-hearings of "tarquin" so a small ASR model still wakes reliably.
-var Aliases = []string{"tarquin", "tarkin", "tarkwin", "tar quin", "torquin", "tarquine", "darkwin", "tark win", "tarquinn", "tarquim"}
+var Aliases = []string{"tarquin", "taquin", "tarkin", "tarkwin", "tar quin", "torquin", "tarquine", "darkwin", "tark win", "tarquinn", "tarquim"}
 
 // Matches returns (hit, score 0..100) for text against phrases and aliases.
 func Matches(text string, phrases []string, threshold int) (bool, int) {
@@ -73,7 +73,7 @@ func levenshtein(a, b []rune) int {
 	return prev[len(b)]
 }
 
-var aliasRe = regexp.MustCompile(`(?i)\b(tark?w?in|tarquine|torquin|darkwin|tark win|tar quin|tarquinn|tarquim)\b`)
+var aliasRe = regexp.MustCompile(`(?i)\b(tark?w?in|taquin|tarkin|talkin|tarquine|torquin|darkwin|tark win|tar quin|tarquinn|tarquim|tarquinn)\b`)
 
 // Normalize rewrites common mis-hearings of the wake word to its canonical spelling.
 func Normalize(text, canonical string) string {
