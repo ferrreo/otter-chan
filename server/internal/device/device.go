@@ -29,10 +29,10 @@ import (
 var dismissRe = regexp.MustCompile(`(?i)\b(that('ll| will| would) be all|that's (all|everything)|thanks?,? that's (all|it)|dismissed|good ?bye|good night|go (back )?to sleep|nothing (else|more))\b`)
 
 const (
-	BinAudio     = 0x01
-	BinWakeClip  = 0x02
-	BinPhoto     = 0x03
-	BinTrackJPEG = 0x04
+	BinAudio      = 0x01
+	BinWakeClip   = 0x02
+	BinPhoto      = 0x03
+	BinTrackJPEG  = 0x04
 	BinAudioADPCM = 0x05 // server->device: IMA ADPCM block (2048 samples, 1028 bytes)
 	BinMicADPCM   = 0x06 // device->server: IMA ADPCM block of mic audio
 
