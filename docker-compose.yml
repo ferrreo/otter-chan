@@ -1,0 +1,44 @@
+# Coolify: add this repo as a "Docker Compose" resource. Set OTTER_TOKENS and META_MODEL_API_KEY in
+# the Coolify environment, then give the `tarquin` service the domain https://bot.ferreo.dev:8480
+# (Coolify's proxy terminates TLS; the robot connects to wss://bot.ferreo.dev/ws/device).
+# Local: `cp .env.example .env && docker compose up --build` and use ws://localhost:8480.
+services:
+  tarquin:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${OTTER_BIND:-127.0.0.1}:8480:8480"
+    environment:
+      OTTER_TOKENS: ${OTTER_TOKENS:?set device:<token>,<bot>:<token> in Coolify}
+      META_MODEL_API_KEY: ${META_MODEL_API_KEY:?Meta Model API key (Muse Code plan key works)}
+      OTTER_LLM_MODEL: ${OTTER_LLM_MODEL:-muse-spark-1.3-contributor}
+      OTTER_LLM_REASONING: ${OTTER_LLM_REASONING:-minimal}
+      OTTER_NAME: ${OTTER_NAME:-Tarquin}
+      OTTER_WAKE_PHRASES: ${OTTER_WAKE_PHRASES:-tarquin,hey tarquin,ok tarquin}
+      OTTER_VOX_VOICE: ${OTTER_VOX_VOICE:-tarquin}
+      OTTER_VOX_ARGS: ${OTTER_VOX_ARGS:---cpu --cpu-threads 8}
+      OTTER_FOLLOWUP: ${OTTER_FOLLOWUP:-true}
+      OTTER_STT_URL: http://stt:8080
+    volumes:
+      - tarquin-data:/data
+    depends_on:
+      - stt
+    # For a GPU host with Vulkan: uncomment and set OTTER_VOX_ARGS="--backend vulkan"
+    # devices: ["/dev/dri:/dev/dri"]
+
+  stt:
+    image: ghcr.io/mudler/parakeet.cpp-server:latest
+    restart: unless-stopped
+    command: ["--model", "${OTTER_STT_MODEL:-tdt_ctc-110m}"]
+    environment:
+      PARAKEET_CACHE_DIR: /cache
+    volumes:
+      - parakeet-cache:/cache
+    expose:
+      - "8080"
+
+volumes:
+  tarquin-data:
+  parakeet-cache:

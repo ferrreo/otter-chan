@@ -1,0 +1,14 @@
+# firmware
+firmware/.pio/
+firmware/secrets.ini
+firmware/.vscode/
+# server
+server/.venv/
+server/__pycache__/
+server/**/__pycache__/
+server/.env
+server/data/
+server/sidecars/
+*.pyc
+*.wav
+*.log
