@@ -49,8 +49,9 @@ No Python at runtime. Speech runs on CPU via ggml (parakeet.cpp for STT, otter-v
 
 1. New resource → Docker Compose → this repo. Coolify reads `docker-compose.yml`.
 2. Environment: `OTTER_TOKENS=device:<tok>,grok-alpha:<tok>,admin:<tok>` and `META_MODEL_API_KEY=<key>`
-   (the Muse Code plan key from `~/.config/muse/auth.json` → `providers.meta.api_key` works). Optional:
-   `OTTER_VOX_ARGS="--backend vulkan"` on a GPU host (uncomment `devices` in the compose file).
+   (the Muse Code plan key from `~/.config/muse/auth.json` → `providers.meta.api_key` works). The compose
+   file passes `/dev/dri` for Vulkan TTS by default; set `RENDER_GID`/`VIDEO_GID` to the host's group ids
+   (`getent group render video`). CPU-only hosts: `OTTER_VOX_ARGS=--cpu --cpu-threads 8`.
 3. Set the `tarquin` service domain to `https://bot.ferreo.dev:8480`. Coolify's proxy terminates TLS and
    the robot connects to `wss://bot.ferreo.dev/ws/device` (its default URL). The firmware pins
    Let's Encrypt's ISRG Root X1, so plain `ws://` is only used for LAN testing.

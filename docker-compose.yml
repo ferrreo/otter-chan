@@ -19,15 +19,21 @@ services:
       OTTER_NAME: ${OTTER_NAME:-Tarquin}
       OTTER_WAKE_PHRASES: ${OTTER_WAKE_PHRASES:-tarquin,hey tarquin,ok tarquin}
       OTTER_VOX_VOICE: ${OTTER_VOX_VOICE:-tarquin}
-      OTTER_VOX_ARGS: ${OTTER_VOX_ARGS:---cpu --cpu-threads 8}
+      # Vulkan on the host's Intel/AMD GPU via /dev/dri (mesa ANV/RADV in the image). Set
+      # OTTER_VOX_ARGS="--cpu --cpu-threads 8" to run without a GPU.
+      OTTER_VOX_ARGS: ${OTTER_VOX_ARGS:---backend vulkan --gpu auto}
       OTTER_FOLLOWUP: ${OTTER_FOLLOWUP:-true}
       OTTER_STT_URL: http://stt:8080
     volumes:
       - tarquin-data:/data
     depends_on:
       - stt
-    # For a GPU host with Vulkan: uncomment and set OTTER_VOX_ARGS="--backend vulkan"
-    # devices: ["/dev/dri:/dev/dri"]
+    devices:
+      - /dev/dri:/dev/dri
+    # GID of the host's `render` group (getent group render | cut -d: -f3); needed for /dev/dri access.
+    group_add:
+      - "${RENDER_GID:-992}"
+      - "${VIDEO_GID:-44}"
 
   stt:
     image: ghcr.io/mudler/parakeet.cpp-server:latest
