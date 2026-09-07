@@ -5,6 +5,7 @@
 namespace tracker {
 bool begin();                       // init camera; returns false if the camera is unavailable
 void setEnabled(bool on);           // start/stop the tracking loop (servo follow)
+void setFrozen(bool on);            // keep the head still (while listening/speaking: servo noise ruins audio)
 bool enabled();
 bool cameraOk();
 // Server face-detect assist result (normalized 0..1 image coords); found=false clears it.

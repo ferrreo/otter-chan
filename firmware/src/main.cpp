@@ -88,6 +88,8 @@ static void setMode(Mode m) {
     Mode prev = g_state.mode.exchange(m);
     if (prev == m) return;
     log_i("mode %s -> %s", modeName(prev), modeName(m));
+    // Servo moves inject noise into the audio path: hold still while the mic or speaker is live.
+    tracker::setFrozen(m == Mode::Listening || m == Mode::Thinking || m == Mode::Speaking);
     switch (m) {
         case Mode::Standby:
             audio::setDirection(g_settings.wakeWord ? AudioDir::Mic : AudioDir::Off);
@@ -228,8 +230,10 @@ static void onServerJson(JsonDocument& d) {
     } else if (!strcmp(type, "face")) {
         tracker::onFaceResult(d["found"] | false, d["x"] | 0.5f, d["y"] | 0.5f, d["w"] | 0.f);
     } else if (!strcmp(type, "photo_request")) {
+        uint32_t t0 = millis();
         uint8_t* jpg; size_t n = tracker::captureJpeg(&jpg, d["quality"] | 20);
-        if (n) { net::sendBin(BIN_PHOTO, jpg, n); free(jpg); }
+        log_i("photo: %u bytes in %u ms", (unsigned)n, (unsigned)(millis() - t0));
+        if (n) { bool ok = net::sendBin(BIN_PHOTO, jpg, n); free(jpg); if (!ok) log_w("photo: send failed"); }
         else { JsonDocument r; r["type"] = "photo_failed"; net::sendJson(r); }
     } else if (!strcmp(type, "listen")) {
         if (g_state.mode == Mode::Standby) setMode(Mode::Listening);

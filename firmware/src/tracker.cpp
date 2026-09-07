@@ -13,6 +13,7 @@ namespace {
 
 bool g_camOk = false;
 std::atomic<bool> g_enabled{false};
+std::atomic<bool> g_frozen{false};
 uint8_t* g_prev;   // TRK_W*TRK_H luma of previous frame
 uint8_t* g_cur;
 SemaphoreHandle_t g_camMutex;
@@ -150,7 +151,7 @@ void trackTask(void*) {
     uint32_t lastAssist = 0;
     for (;;) {
         Script s = g_script.exchange(Script::None);
-        if (s != Script::None) { runScript(s); g_pauseUntil = millis() + 800; continue; }
+        if (s != Script::None && !g_frozen) { runScript(s); g_pauseUntil = millis() + 800; continue; }
         if (!g_enabled || !g_camOk) { vTaskDelay(pdMS_TO_TICKS(100)); continue; }
 
         camera_fb_t* fb = nullptr;
@@ -162,7 +163,9 @@ void trackTask(void*) {
             if (fb && TRK_ASSIST_MS && net::connected() && now - lastAssist > TRK_ASSIST_MS) {
                 uint8_t* jpg = nullptr; size_t jl = 0;
                 if (frameToJpegPsram(fb, TRK_ASSIST_JPEG_Q, &jpg, &jl)) {
-                    net::sendBin(BIN_TRACK_JPEG, jpg, jl, true);
+                    bool ok = net::sendBin(BIN_TRACK_JPEG, jpg, jl, true);
+                    static int nAssist = 0;
+                    if ((nAssist++ % 20) == 0) log_i("assist jpeg %u bytes sent=%d", (unsigned)jl, (int)ok);
                     free(jpg);
                 }
                 lastAssist = now;
@@ -188,7 +191,7 @@ void trackTask(void*) {
             g_lastSeen = now;
             g_state.targetVisible = true;
             g_state.gazeX = g_tx; g_state.gazeY = g_ty;
-            if (now > g_pauseUntil && g_state.mode != Mode::Sleep) {
+            if (now > g_pauseUntil && !g_frozen && g_state.mode != Mode::Sleep) {
                 float ex = fabsf(g_tx) > TRK_DEADBAND ? g_tx : 0.f;
                 float ey = fabsf(g_ty) > TRK_DEADBAND ? g_ty : 0.f;
                 if (ex != 0.f || ey != 0.f) {
@@ -205,7 +208,7 @@ void trackTask(void*) {
             }
         } else {
             if (now - g_lastSeen > 1200) { g_state.targetVisible = false; g_state.gazeX = g_state.gazeX * 0.9f; g_state.gazeY = g_state.gazeY * 0.9f; }
-            if (now - g_lastSeen > TRK_LOST_MS && (g_yaw != 0 || g_pitch != PITCH_HOME) && now > g_pauseUntil) {
+            if (now - g_lastSeen > TRK_LOST_MS && (g_yaw != 0 || g_pitch != PITCH_HOME) && now > g_pauseUntil && !g_frozen) {
                 g_yaw = 0; g_pitch = PITCH_HOME;
                 M5StackChan.Motion.move(0, PITCH_HOME, 250);
                 g_pauseUntil = now + 1500;
@@ -248,6 +251,7 @@ bool begin() {
 }
 
 void setEnabled(bool on) { g_enabled = on && g_camOk; if (!on) g_state.targetVisible = false; }
+void setFrozen(bool on) { g_frozen = on; }
 bool enabled() { return g_enabled; }
 bool cameraOk() { return g_camOk; }
 
