@@ -185,6 +185,9 @@ func str(m map[string]any, k string) string {
 }
 
 func (s *Session) onJSON(d map[string]any) {
+	if t := str(d, "type"); t != "telemetry" {
+		log.Printf("device -> %s (robot state %s)", t, s.State())
+	}
 	switch str(d, "type") {
 	case "hello":
 		if n := str(d, "name"); n != "" {
@@ -417,7 +420,11 @@ func (s *Session) RespondTo(ctx context.Context, text string, images [][]byte) (
 				s.SendJSON(s.J("caption", "text", j.sentence, "ms", 0))
 			}
 			if pcm == nil {
-				sayErr = fmt.Errorf("tts failed")
+				if ctx.Err() != nil {
+					sayErr = context.Canceled // user spoke again / cancelled; not a failure
+				} else {
+					sayErr = fmt.Errorf("tts failed")
+				}
 				continue
 			}
 			sayErr = s.streamPCM(ctx, pcm)
@@ -441,6 +448,9 @@ func (s *Session) RespondTo(ctx context.Context, text string, images [][]byte) (
 	s.SendJSON(s.J("say_end", "followup", followup && started && !end, "end", end, "bytes", s.sentBytes.Load()))
 	if err == nil {
 		err = sayErr
+	}
+	if errors.Is(err, context.Canceled) {
+		return reply, context.Canceled
 	}
 	return reply, err
 }
