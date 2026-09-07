@@ -196,6 +196,24 @@ func (e *Engine) viaSpawn(ctx context.Context, text string) (*audio.WAV, error) 
 	return w, rerr
 }
 
+// Warm starts the resident engine (model load, Vulkan shader compile) and renders one phrase
+// bypassing the cache, so the first real reply doesn't pay for it.
+func (e *Engine) Warm(ctx context.Context) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	t0 := time.Now()
+	_, err := e.synth(ctx, "Good day. Tarquin at your service.")
+	if err != nil && e.Voice != FallbackVoice {
+		log.Printf("tts: voice %q failed (%v); falling back to %q", e.Voice, err, FallbackVoice)
+		e.Voice = FallbackVoice
+		e.stop()
+		e.serveBad = false
+		_, err = e.synth(ctx, "Good day. Tarquin at your service.")
+	}
+	log.Printf("tts: warm-up done in %.1fs (err=%v)", time.Since(t0).Seconds(), err)
+	return err
+}
+
 func (e *Engine) Healthy() bool {
 	_, err := exec.LookPath(e.Bin)
 	return err == nil

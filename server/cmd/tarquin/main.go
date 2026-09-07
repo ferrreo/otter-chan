@@ -79,7 +79,7 @@ func main() {
 
 // warm starts the resident TTS process so the first reply doesn't pay the model load.
 func warm(t *tts.Engine) {
-	if _, err := t.Synthesize(context.Background(), "Good day."); err != nil {
+	if err := t.Warm(context.Background()); err != nil {
 		log.Printf("tts warm-up: %v", err)
 	}
 }
