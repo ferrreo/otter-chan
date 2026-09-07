@@ -8,6 +8,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
+#include <freertos/idf_additions.h>
 
 namespace {
 
@@ -145,7 +146,7 @@ void begin(JsonHandler onJson, BinHandler onBin) {
     g_onJson = onJson; g_onBin = onBin;
     g_txQueue = xQueueCreate(64, sizeof(TxItem*));
     g_wsMutex = xSemaphoreCreateMutex();
-    xTaskCreatePinnedToCore(netTask, "net", 12288, nullptr, 4, nullptr, 0);
+    xTaskCreatePinnedToCoreWithCaps(netTask, "net", 12288, nullptr, 4, nullptr, 0, MALLOC_CAP_SPIRAM);
 }
 
 bool connected() { return g_connected; }

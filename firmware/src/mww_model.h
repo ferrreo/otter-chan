@@ -3,7 +3,7 @@
 #pragma once
 #include <stdint.h>
 #define MWW_WAKE_WORD "Tarquin"
-#define MWW_PROBABILITY_CUTOFF 191
+#define MWW_PROBABILITY_CUTOFF 153
 #define MWW_SLIDING_WINDOW 5
 #define MWW_TENSOR_ARENA 36000
 #define MWW_FEATURE_STEP_MS 10

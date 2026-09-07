@@ -4,6 +4,7 @@
 #include "settings.h"
 #include "net_link.h"
 #include <M5Unified.h>
+#include <freertos/idf_additions.h>
 #include <M5StackChan.h>
 #include <esp_camera.h>
 #include <img_converters.h>
@@ -246,7 +247,7 @@ bool begin() {
 
     g_pitch = PITCH_HOME;
     M5StackChan.Motion.move(0, PITCH_HOME, 300);
-    xTaskCreatePinnedToCore(trackTask, "track", 6144, nullptr, 3, nullptr, 0);
+    xTaskCreatePinnedToCoreWithCaps(trackTask, "track", 6144, nullptr, 3, nullptr, 0, MALLOC_CAP_SPIRAM);
     return g_camOk;
 }
 

@@ -13,6 +13,7 @@
 #if MWW_HAVE_MODEL
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <freertos/idf_additions.h>
 #include <freertos/stream_buffer.h>
 #include <atomic>
 #include <algorithm>
@@ -141,6 +142,7 @@ void detectTask(void*) {
         size_t got = xStreamBufferReceive(g_stream, buf, MIC_FRAME_SAMPLES * sizeof(int16_t), portMAX_DELAY);
         size_t n = got / sizeof(int16_t);
         if (!g_enabled || n == 0) continue;
+        uint32_t t0 = micros();
         size_t off = 0;
         while (off < n) {
             size_t read = 0;
@@ -155,7 +157,13 @@ void detectTask(void*) {
             }
             if (pushFeatures(feat)) g_detected = true;
         }
-        if (millis() - g_lastLogMs > 30000) { g_lastLogMs = millis(); if (g_lastMax) log_d("mww: max prob last 30 s %u/255", g_lastMax); g_lastMax = 0; }
+        static uint32_t acc = 0, cnt = 0;
+        acc += micros() - t0; cnt++;
+        if (millis() - g_lastLogMs > 30000) {
+            g_lastLogMs = millis();
+            log_i("mww: %.1f ms per 32 ms frame, max prob %u/255, internal heap %u", cnt ? acc / 1000.f / cnt : 0.f, g_lastMax, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+            acc = cnt = 0; g_lastMax = 0;
+        }
         taskYIELD();
     }
 }
@@ -171,7 +179,7 @@ bool begin() {
     const size_t streamBytes = AUDIO_RATE * sizeof(int16_t);
     uint8_t* storage = (uint8_t*)heap_caps_malloc(streamBytes + 1, MALLOC_CAP_SPIRAM);
     g_stream = xStreamBufferCreateStatic(streamBytes, 1, storage, &g_streamCtl);
-    xTaskCreatePinnedToCore(detectTask, "mww", 8192, nullptr, 3, nullptr, 1);
+    xTaskCreatePinnedToCoreWithCaps(detectTask, "mww", 8192, nullptr, 3, nullptr, 1, MALLOC_CAP_SPIRAM);
     g_ok = true; g_enabled = true;
     return true;
 }

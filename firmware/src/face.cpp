@@ -4,6 +4,7 @@
 #include "config.h"
 #include "state.h"
 #include <M5Unified.h>
+#include <freertos/idf_additions.h>
 #include <math.h>
 
 namespace {
@@ -395,7 +396,7 @@ void begin() {
         g_canvas.setColorDepth(8);
         g_canvas.createSprite(W, H);
     }
-    xTaskCreatePinnedToCore(renderTask, "face", 8192, nullptr, 2, nullptr, 1);
+    xTaskCreatePinnedToCoreWithCaps(renderTask, "face", 8192, nullptr, 2, nullptr, 1, MALLOC_CAP_SPIRAM);   // stack in PSRAM: internal RAM is for WiFi/TLS
 }
 
 void setEnabled(bool on) { g_enabled = on; }
