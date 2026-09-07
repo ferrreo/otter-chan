@@ -7,12 +7,15 @@ firmware only ever sees the resulting `.tflite`, embedded as `firmware/src/mww_m
 ## Setup (once)
 
 ```bash
-uv venv --python 3.11 ~/.cache/otter-chan-bench/mww-venv
-uv pip install --python ~/.cache/otter-chan-bench/mww-venv/bin/python 'tensorflow[and-cuda]' \
-  'git+https://github.com/kahrendt/microWakeWord' torch torchaudio piper-phonemize-cross==1.2.1 datasets scipy pyarrow \
+B=~/.cache/otter-chan-bench; W=$B/mww; mkdir -p $W
+uv venv --python 3.11 $B/mww-venv
+git clone https://github.com/kahrendt/microWakeWord $B/microWakeWord
+uv pip install --python $B/mww-venv/bin/python 'tensorflow[and-cuda]' tensorboard -e $B/microWakeWord \
+  torch torchaudio piper-phonemize-cross==1.2.1 'datasets<3.0' 'audiomentations==0.37.0' 'setuptools<81' scipy pyarrow \
   'git+https://github.com/whatsnowplaying/audio-metadata@d4ebb238e6a401bb1a5aaaac60c9e2b3cb30929f'
-W=~/.cache/otter-chan-bench/mww; mkdir -p $W && cd $W
-git clone https://github.com/rhasspy/piper-sample-generator && uv pip install --python ../mww-venv/bin/python -e piper-sample-generator
+# notes: datasets 3.x wants torchcodec, which crashes against this FFmpeg; audiomentations 0.37 has AddColorNoise;
+#        setuptools<81 keeps pkg_resources for webrtcvad. Training on CPU is fine (a few minutes per 1k steps).
+cd $W && git clone https://github.com/rhasspy/piper-sample-generator && uv pip install --python $B/mww-venv/bin/python -e piper-sample-generator
 curl -L -o piper-sample-generator/models/en_US-libritts_r-medium.pt \
   https://github.com/rhasspy/piper-sample-generator/releases/download/v2.0.0/en_US-libritts_r-medium.pt
 ```

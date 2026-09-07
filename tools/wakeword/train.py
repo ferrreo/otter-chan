@@ -73,15 +73,17 @@ def stage_samples(work: Path, gen_model: Path, py: str):
 
 
 def stage_rirs(work: Path):
+    """MIT impulse responses (already 16 kHz WAVs in the dataset repo)."""
     out = work / "data" / "mit_rirs"
     if out.exists() and any(out.glob("*.wav")):
         return
-    import datasets, numpy as np, scipy.io.wavfile
+    from huggingface_hub import snapshot_download
+    import shutil
     out.mkdir(parents=True, exist_ok=True)
-    ds = datasets.load_dataset("davidscripka/MIT_environmental_impulse_responses", split="train", streaming=True)
-    for row in ds:
-        name = row["audio"]["path"].split("/")[-1]
-        scipy.io.wavfile.write(out / name, 16000, (row["audio"]["array"] * 32767).astype(np.int16))
+    snap = snapshot_download("davidscripka/MIT_environmental_impulse_responses", repo_type="dataset", allow_patterns=["16khz/*.wav"])
+    for w in Path(snap, "16khz").glob("*.wav"):
+        shutil.copy(w, out / w.name)
+    print(f"rirs: {len(list(out.glob('*.wav')))}")
 
 
 def stage_noise(work: Path):

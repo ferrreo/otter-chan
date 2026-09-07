@@ -1,0 +1,14 @@
+{
+  "type": "micro",
+  "wake_word": "Tarquin",
+  "author": "otter-chan (microWakeWord, trained from piper synthetic samples + owner recordings)",
+  "model": "tarquin.tflite",
+  "trained_languages": ["en"],
+  "version": 2,
+  "micro": {
+    "probability_cutoff": 0.95,
+    "feature_step_size": 10,
+    "sliding_window_size": 5,
+    "tensor_arena_size": 30000
+  }
+}
