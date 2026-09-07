@@ -30,7 +30,8 @@ uint32_t g_lastSeen = 0;
 uint32_t g_pauseUntil = 0;
 int g_yaw = 0, g_pitch = PITCH_HOME;
 
-enum class Script : uint8_t { None, Nod, Shake, Dance };
+enum class Script : uint8_t { None, Nod, Shake, Dance, Bow, Spin, Wiggle, LookAround, Excited, Peek };
+std::atomic<bool> g_talking{false};
 std::atomic<Script> g_script{Script::None};
 
 camera_config_t makeConfig(pixformat_t fmt) {
@@ -121,24 +122,59 @@ static bool frameToJpegPsram(camera_fb_t* fb, int quality, uint8_t** out, size_t
     return true;
 }
 
+static void moveRel(int dy, int dp, int speed, uint32_t ms) {
+    M5StackChan.Motion.move(constrain(g_yaw + dy, YAW_MIN, YAW_MAX), constrain(g_pitch + dp, PITCH_MIN, PITCH_MAX), speed);
+    vTaskDelay(pdMS_TO_TICKS(ms));
+}
+
 void runScript(Script s) {
     auto& mo = M5StackChan.Motion;
     switch (s) {
         case Script::Nod:
-            for (int i = 0; i < 2; i++) { mo.movePitch(constrain(g_pitch - 200, PITCH_MIN, PITCH_MAX), 900); vTaskDelay(pdMS_TO_TICKS(260)); mo.movePitch(g_pitch, 900); vTaskDelay(pdMS_TO_TICKS(260)); }
+            for (int i = 0; i < 2; i++) { moveRel(0, -220, 900, 240); moveRel(0, 0, 900, 240); }
             break;
         case Script::Shake:
-            for (int i = 0; i < 2; i++) { mo.moveYaw(g_yaw - 250, 900); vTaskDelay(pdMS_TO_TICKS(240)); mo.moveYaw(g_yaw + 250, 900); vTaskDelay(pdMS_TO_TICKS(240)); }
+            for (int i = 0; i < 2; i++) { moveRel(-260, 0, 900, 220); moveRel(260, 0, 900, 220); }
             mo.moveYaw(g_yaw, 700);
             break;
+        case Script::Bow:
+            moveRel(0, -350, 350, 900); vTaskDelay(pdMS_TO_TICKS(500)); moveRel(0, 0, 300, 700);
+            break;
+        case Script::Wiggle:
+            for (int i = 0; i < 4; i++) { moveRel(-120, (i & 1) ? 60 : -60, 1000, 130); moveRel(120, (i & 1) ? -60 : 60, 1000, 130); }
+            mo.move(g_yaw, g_pitch, 600);
+            break;
+        case Script::LookAround:
+            moveRel(500, 100, 400, 700); vTaskDelay(pdMS_TO_TICKS(400)); moveRel(-500, 100, 400, 900); vTaskDelay(pdMS_TO_TICKS(400));
+            moveRel(0, 250, 400, 600); vTaskDelay(pdMS_TO_TICKS(300)); mo.move(g_yaw, g_pitch, 400);
+            break;
+        case Script::Excited:
+            for (int i = 0; i < 3; i++) { moveRel(0, 200, 1000, 150); moveRel(0, -60, 1000, 150); }
+            for (int i = 0; i < 2; i++) { moveRel(-200, 120, 1000, 160); moveRel(200, 120, 1000, 160); }
+            mo.move(g_yaw, g_pitch, 600);
+            break;
+        case Script::Peek:
+            moveRel(0, 300, 700, 500); vTaskDelay(pdMS_TO_TICKS(600)); moveRel(0, -250, 700, 500); vTaskDelay(pdMS_TO_TICKS(400)); mo.move(g_yaw, g_pitch, 500);
+            break;
+        case Script::Spin: {
+            // the yaw servo is continuous: one showy spin, then re-home
+            M5StackChan.showRgbColor(80, 0, 120);
+            mo.rotateYaw(-900); vTaskDelay(pdMS_TO_TICKS(1400));
+            mo.rotateYaw(0); vTaskDelay(pdMS_TO_TICKS(150));
+            mo.move(0, PITCH_HOME, 500); g_yaw = 0; g_pitch = PITCH_HOME;
+            vTaskDelay(pdMS_TO_TICKS(600));
+            M5StackChan.showRgbColor(0, 0, 0);
+            break;
+        }
         case Script::Dance: {
-            for (int i = 0; i < 6; i++) {
-                int y = (i % 2) ? 400 : -400;
-                int p = constrain(PITCH_HOME + ((i % 3) - 1) * 200, PITCH_MIN, PITCH_MAX);
-                mo.move(y, p, 800);
+            for (int i = 0; i < 8; i++) {
+                int y = (i % 2) ? 450 : -450;
+                int p = constrain(PITCH_HOME + ((i % 3) - 1) * 220, PITCH_MIN, PITCH_MAX);
+                mo.move(y, p, 900);
                 M5StackChan.showRgbColor(esp_random() & 255, esp_random() & 255, esp_random() & 255);
-                vTaskDelay(pdMS_TO_TICKS(380));
+                vTaskDelay(pdMS_TO_TICKS(330));
             }
+            for (int i = 0; i < 3; i++) { moveRel(0, 200, 1000, 160); moveRel(0, -200, 1000, 160); }
             mo.move(0, PITCH_HOME, 500);
             g_yaw = 0; g_pitch = PITCH_HOME;
             M5StackChan.showRgbColor(0, 0, 0);
@@ -148,11 +184,25 @@ void runScript(Script s) {
     }
 }
 
+// Small conversational motion while speaking: occasional nods and a slight lean, no camera.
+void talkMotion(uint32_t now) {
+    static uint32_t next = 0;
+    if (now < next) return;
+    next = now + 700 + esp_random() % 900;
+    int pick = esp_random() % 4;
+    int dy = 0, dp = 0;
+    if (pick == 0) dp = -90;              // little nod
+    else if (pick == 1) dy = (esp_random() & 1) ? 70 : -70;   // slight turn
+    else if (pick == 2) dp = 50;          // chin up
+    M5StackChan.Motion.move(constrain(g_yaw + dy, YAW_MIN, YAW_MAX), constrain(g_pitch + dp, PITCH_MIN, PITCH_MAX), 300);
+}
+
 void trackTask(void*) {
     uint32_t lastAssist = 0;
     for (;;) {
         Script s = g_script.exchange(Script::None);
         if (s != Script::None && !g_frozen) { runScript(s); g_pauseUntil = millis() + 800; continue; }
+        if (g_talking && !g_frozen) { talkMotion(millis()); vTaskDelay(pdMS_TO_TICKS(100)); continue; }
         if (!g_enabled || !g_camOk || g_frozen) { vTaskDelay(pdMS_TO_TICKS(100)); continue; }   // frozen: no grabs, no uploads
 
         camera_fb_t* fb = nullptr;
@@ -179,7 +229,7 @@ void trackTask(void*) {
         uint32_t now = millis();
         float cx, cy; bool seen = false;
         // prefer a fresh face fix from the server
-        if (g_faceFound && now - g_faceAt < 1500) {
+        if (g_faceFound && now - g_faceAt < TRK_FACE_VALID_MS) {
             cx = g_faceX * 2.f - 1.f; cy = g_faceY * 2.f - 1.f; seen = true;
         } else if (motionCentroid(cx, cy)) {
             seen = true;
@@ -257,6 +307,17 @@ bool begin() {
 
 void setEnabled(bool on) { g_enabled = on && g_camOk; if (!on) g_state.targetVisible = false; }
 void setFrozen(bool on) { g_frozen = on; }
+void setTalking(bool on) { g_talking = on; }
+bool gesture(const char* name) {
+    struct { const char* n; Script s; } table[] = {
+        {"nod", Script::Nod}, {"yes", Script::Nod}, {"shake", Script::Shake}, {"no", Script::Shake}, {"dance", Script::Dance},
+        {"bow", Script::Bow}, {"spin", Script::Spin}, {"wiggle", Script::Wiggle}, {"look_around", Script::LookAround},
+        {"excited", Script::Excited}, {"peek", Script::Peek},
+    };
+    for (auto& t : table) if (!strcmp(name, t.n)) { g_script = t.s; return true; }
+    if (!strcmp(name, "home")) { goHome(); return true; }
+    return false;
+}
 bool enabled() { return g_enabled; }
 bool cameraOk() { return g_camOk; }
 

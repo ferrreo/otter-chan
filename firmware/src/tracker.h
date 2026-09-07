@@ -16,5 +16,7 @@ void lookAt(float nx, float ny, int speed);   // manual look (normalized -1..1),
 void goHome();
 int currentYaw();
 int currentPitch();
+void setTalking(bool on);           // gentle head motion while speaking (no camera)
+bool gesture(const char* name);     // nod shake dance bow spin wiggle look_around excited peek no yes (non-blocking)
 void nod(); void shake(); void dance();       // scripted moves (non-blocking, run on the tracker task)
 }

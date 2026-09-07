@@ -278,8 +278,10 @@ func (a *API) gesture(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n := r.URL.Query().Get("name")
-	if n != "nod" && n != "shake" && n != "dance" && n != "home" {
-		fail(w, 400, "name must be nod|shake|dance|home")
+	switch n {
+	case "nod", "shake", "dance", "bow", "spin", "wiggle", "look_around", "excited", "peek", "home":
+	default:
+		fail(w, 400, "name must be nod|shake|dance|bow|spin|wiggle|look_around|excited|peek|home")
 		return
 	}
 	s.SendJSON(s.J("gesture", "name", n))

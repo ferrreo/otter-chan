@@ -128,7 +128,8 @@ static void setMode(Mode m) {
     if (prev == m) return;
     log_i("mode %s -> %s", modeName(prev), modeName(m));
     // Servo moves inject noise into the audio path: hold still while the mic or speaker is live.
-    tracker::setFrozen(m == Mode::Listening || m == Mode::Thinking || m == Mode::Speaking);
+    tracker::setFrozen(m == Mode::Listening || m == Mode::Thinking);   // mic live: keep the servos quiet
+    tracker::setTalking(m == Mode::Speaking);                          // gentle nods while he talks
     switch (m) {
         case Mode::Standby:
             audio::setDirection(g_settings.wakeWord ? AudioDir::Mic : AudioDir::Off);
@@ -268,9 +269,7 @@ static void onServerJson(JsonDocument& d) {
     } else if (!strcmp(type, "look")) {
         tracker::lookAt(d["x"] | 0.f, d["y"] | 0.f, d["speed"] | 500);
     } else if (!strcmp(type, "gesture")) {
-        const char* g = d["name"] | "";
-        if (!strcmp(g, "nod")) tracker::nod(); else if (!strcmp(g, "shake")) tracker::shake();
-        else if (!strcmp(g, "dance")) tracker::dance(); else if (!strcmp(g, "home")) tracker::goHome();
+        tracker::gesture(d["name"] | "");
     } else if (!strcmp(type, "led")) {
         const char* mode = d["mode"] | "solid";
         leds::Pattern p = leds::Pattern::Solid;

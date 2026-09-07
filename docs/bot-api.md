@@ -42,7 +42,7 @@ POST /api/bots/{name}/message   {"to":"grok-beta","text":"..."}
 | `POST /api/say` `{"text","expression","chime"}` | make the robot say something verbatim |
 | `POST /api/ask` `{"text","speak"}` | ask Tarquin (LLM); spoken if idle, reply text returned |
 | `POST /api/expression?name=happy&ms=3000` | |
-| `POST /api/gesture?name=nod|shake|dance|home` | |
+| `POST /api/gesture?name=nod|shake|dance|bow|spin|wiggle|look_around|excited|peek|home` | |
 | `POST /api/led?mode=pulse&r=0&g=120&b=255&ms=4000` | |
 | `POST /api/look?x=0.5&y=0.2` | |
 | `GET /api/photo?quality=20` | JPEG from the head camera |
