@@ -378,7 +378,7 @@ void renderTask(void*) {
             drawFrame(millis());
             xSemaphoreGive(g_canvasMutex);
         }
-        vTaskDelay(pdMS_TO_TICKS(33));
+        vTaskDelay(pdMS_TO_TICKS(50));   // 20 fps leaves room for the wake-word detector on this core
     }
 }
 

@@ -44,7 +44,12 @@ void detectTask(void*) {
             if (got < (size_t)g_chunk * sizeof(int16_t)) continue;
         }
         if (!g_enabled) continue;
+        uint32_t t0 = micros();
         esp_mn_state_t st = g_mn->detect(g_model, buf);
+        static uint32_t acc = 0, cnt = 0;
+        acc += micros() - t0;
+        if (++cnt == 200) { log_i("wake: detect avg %.1f ms per %d-sample chunk (%.0f ms real time), backlog %u B", acc / 200000.f, g_chunk, g_chunk * 1000.f / AUDIO_RATE, (unsigned)xStreamBufferBytesAvailable(g_stream)); acc = 0; cnt = 0; }
+        vTaskDelay(1);   // let the idle task (and the watchdog) breathe
         if (st == ESP_MN_STATE_DETECTED) {
             esp_mn_results_t* r = g_mn->get_results(g_model);
             if (r && r->num > 0) {
@@ -84,7 +89,8 @@ bool begin() {
     const size_t streamBytes = AUDIO_RATE * sizeof(int16_t);   // 1 s of slack
     uint8_t* storage = (uint8_t*)heap_caps_malloc(streamBytes + 1, MALLOC_CAP_SPIRAM);
     g_stream = xStreamBufferCreateStatic(streamBytes, 1, storage, &g_streamCtl);
-    xTaskCreatePinnedToCore(detectTask, "wake", 6144, nullptr, 4, nullptr, 1);
+    // heavy (~40% of a core): keep it below the render and main loops and off their core
+    xTaskCreatePinnedToCore(detectTask, "wake", 6144, nullptr, 3, nullptr, 1);
     g_ok = true;
     g_enabled = true;
     log_i("wake: MultiNet '%s' ready, chunk %d samples; internal heap free %u", name, g_chunk, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
