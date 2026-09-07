@@ -25,7 +25,8 @@ COPY deploy/voices/ /usr/share/otter-shell/models/vox/audio8/voices/
 RUN useradd -r -m -d /var/lib/tarquin tarquin && mkdir -p /data && chown tarquin /data
 USER tarquin
 ENV OTTER_HOST=0.0.0.0 OTTER_PORT=8480 OTTER_DATA_DIR=/data OTTER_STT_URL=http://stt:8080 \
-    OTTER_VOX_BIN=/usr/bin/otter-vox OTTER_VOX_ARGS="--cpu --cpu-threads 8" HOME=/var/lib/tarquin
+    OTTER_VOX_BIN=/usr/bin/otter-vox OTTER_VOX_ARGS="--cpu --cpu-threads 8" HOME=/var/lib/tarquin \
+    MESA_SHADER_CACHE_DIR=/data/mesa_cache XDG_CACHE_HOME=/data/cache
 EXPOSE 8480
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s CMD curl -fsS http://127.0.0.1:8480/health || exit 1
 ENTRYPOINT ["/usr/local/bin/tarquin"]
