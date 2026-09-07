@@ -29,6 +29,7 @@ bool isPlaybackIdle();         // ring empty and speaker finished
 size_t playbackBacklogMs();
 size_t bytesReceived();        // TTS bytes accepted since the last clearPlayback()
 size_t bytesPlayed();          // TTS bytes handed to the DAC since the last clearPlayback()
+uint32_t underruns();          // times the speaker ran dry mid-utterance
 void setVolume(uint8_t v);
 void toneAsync(float freq, uint32_t ms);   // short UI beep; switches to speaker briefly
 void playChime(int which);                 // 0 = wake, 1 = ok, 2 = error, 3 = sleep, 4 = notify

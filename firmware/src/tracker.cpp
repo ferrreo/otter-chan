@@ -153,7 +153,7 @@ void trackTask(void*) {
     for (;;) {
         Script s = g_script.exchange(Script::None);
         if (s != Script::None && !g_frozen) { runScript(s); g_pauseUntil = millis() + 800; continue; }
-        if (!g_enabled || !g_camOk) { vTaskDelay(pdMS_TO_TICKS(100)); continue; }
+        if (!g_enabled || !g_camOk || g_frozen) { vTaskDelay(pdMS_TO_TICKS(100)); continue; }   // frozen: no grabs, no uploads
 
         camera_fb_t* fb = nullptr;
         if (xSemaphoreTake(g_camMutex, pdMS_TO_TICKS(200)) == pdTRUE) {
@@ -282,6 +282,8 @@ void lookAt(float nx, float ny, int speed) {
 }
 
 void goHome() { g_yaw = 0; g_pitch = PITCH_HOME; M5StackChan.Motion.move(0, PITCH_HOME, 400); g_pauseUntil = millis() + 1500; }
+int currentYaw() { return g_yaw; }
+int currentPitch() { return g_pitch; }
 void nod() { g_script = Script::Nod; }
 void shake() { g_script = Script::Shake; }
 void dance() { g_script = Script::Dance; }

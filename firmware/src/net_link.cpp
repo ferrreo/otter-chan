@@ -146,7 +146,7 @@ void begin(JsonHandler onJson, BinHandler onBin) {
     g_onJson = onJson; g_onBin = onBin;
     g_txQueue = xQueueCreate(64, sizeof(TxItem*));
     g_wsMutex = xSemaphoreCreateMutex();
-    xTaskCreatePinnedToCoreWithCaps(netTask, "net", 12288, nullptr, 4, nullptr, 0, MALLOC_CAP_SPIRAM);
+    xTaskCreatePinnedToCore(netTask, "net", 12288, nullptr, 4, nullptr, 0);   // TLS on an internal stack (PSRAM stacks slow crypto)
 }
 
 bool connected() { return g_connected; }

@@ -34,7 +34,7 @@ const (
 	BinTrackJPEG = 0x04
 
 	chunkBytes  = 4096 // 128 ms of 16 kHz s16le
-	leadSeconds = 1.6  // how far ahead of real time playback may run
+	leadSeconds = 3.0  // how far ahead of real time playback may run (robot buffers ~6 s)
 )
 
 type Deps struct {
@@ -377,18 +377,61 @@ func (s *Session) RespondTo(ctx context.Context, text string, images [][]byte) (
 	followup := s.hub.deps.Cfg.Followup
 	started := false
 	var sayErr error
+	// Sentences are synthesised as soon as the model emits them (in order), and streamed one behind:
+	// the next sentence renders while the current one plays, so there is no gap between them.
+	type job struct {
+		sentence, expr string
+		pcm            chan []byte
+	}
+	jobs := make(chan job, 8)
+	go func() {
+		for j := range jobs {
+			if s.cancel.Load() {
+				close(j.pcm)
+				continue
+			}
+			pcm, err := s.hub.deps.TTS.Synthesize(ctx, j.sentence)
+			if err != nil {
+				log.Printf("tts: %v", err)
+				pcm = nil
+			}
+			j.pcm <- pcm
+			close(j.pcm)
+		}
+	}()
+	var pending []job
+	drain := func(n int) {
+		for len(pending) > n {
+			j := pending[0]
+			pending = pending[1:]
+			pcm := <-j.pcm
+			if s.cancel.Load() || sayErr != nil {
+				continue
+			}
+			if !started {
+				s.SendJSON(s.J("say_start", "text", j.sentence, "expression", j.expr, "followup", followup))
+				started = true
+			} else {
+				s.SendJSON(s.J("caption", "text", j.sentence, "ms", 0))
+			}
+			if pcm == nil {
+				sayErr = fmt.Errorf("tts failed")
+				continue
+			}
+			sayErr = s.streamPCM(ctx, pcm)
+		}
+	}
 	reply, err := s.hub.deps.LLM.Respond(ctx, text, images, s.runTool, func(expr, sentence string) {
 		if s.cancel.Load() || sayErr != nil {
 			return
 		}
-		if !started {
-			s.SendJSON(s.J("say_start", "text", sentence, "expression", expr, "followup", followup))
-			started = true
-		} else {
-			s.SendJSON(s.J("caption", "text", sentence, "ms", 0))
-		}
-		sayErr = s.streamTTS(ctx, sentence)
+		j := job{sentence: sentence, expr: expr, pcm: make(chan []byte, 1)}
+		jobs <- j
+		pending = append(pending, j)
+		drain(1) // keep exactly one sentence rendering ahead
 	})
+	close(jobs)
+	drain(0)
 	if !started {
 		s.SendJSON(s.J("say_start", "text", "", "expression", "neutral", "followup", false))
 	}
@@ -446,6 +489,11 @@ func (s *Session) streamTTS(ctx context.Context, sentence string) error {
 	if err != nil {
 		return fmt.Errorf("tts: %w", err)
 	}
+	return s.streamPCM(ctx, pcm)
+}
+
+// streamPCM sends PCM in chunks, paced so the robot's buffer stays leadSeconds ahead of real time.
+func (s *Session) streamPCM(ctx context.Context, pcm []byte) error {
 	t0 := time.Now()
 	sent := 0.0
 	rate := float64(s.hub.deps.Cfg.AudioRate)

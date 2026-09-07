@@ -14,5 +14,7 @@ void onFaceResult(bool found, float x, float y, float w);
 size_t captureJpeg(uint8_t** out, int quality);
 void lookAt(float nx, float ny, int speed);   // manual look (normalized -1..1), pauses tracking briefly
 void goHome();
+int currentYaw();
+int currentPitch();
 void nod(); void shake(); void dance();       // scripted moves (non-blocking, run on the tracker task)
 }

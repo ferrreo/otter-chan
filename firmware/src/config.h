@@ -30,7 +30,7 @@ constexpr size_t   MIC_QUEUE_FRAMES    = 24;      // ~0.77 s of backlog before d
 constexpr size_t   WAKE_CLIP_SAMPLES   = AUDIO_RATE * 5 / 2;  // 2.5 s wake-word clip
 constexpr size_t   WAKE_PRE_SAMPLES    = AUDIO_RATE / 4;      // 250 ms kept before VAD onset
 constexpr size_t   SPK_CHUNK_SAMPLES   = 2048;    // 128 ms playback chunks
-constexpr size_t   SPK_RING_CHUNKS     = 24;      // ~3 s of buffered TTS
+constexpr size_t   SPK_RING_CHUNKS     = 48;      // ~6 s of buffered TTS (PSRAM)
 constexpr uint8_t  DEFAULT_VOLUME      = 160;     // 0..255
 
 // VAD (energy based, adaptive noise floor)
@@ -38,7 +38,7 @@ constexpr float    VAD_ONSET_RATIO     = 3.0f;    // rms must exceed floor * rat
 constexpr float    VAD_MIN_RMS         = 220.0f;  // absolute minimum to count as speech
 constexpr uint32_t VAD_ONSET_MS        = 160;     // consecutive speech to trigger
 constexpr uint32_t MIC_SETTLE_MS       = 450;     // ignore the mic right after the codec switches from speaker to mic
-constexpr uint32_t VAD_END_SILENCE_MS  = 900;     // trailing silence ends an utterance
+constexpr uint32_t VAD_END_SILENCE_MS  = 700;     // trailing silence ends an utterance
 constexpr uint32_t LISTEN_NO_SPEECH_MS = 6000;    // cancel if nobody talks
 constexpr uint32_t LISTEN_FOLLOWUP_MS  = 4000;    // shorter window after a reply
 constexpr uint32_t CONVERSATION_IDLE_MS = 180000;  // after the wake word the mic stays open until dismissed, or this long with no speech
@@ -63,8 +63,8 @@ constexpr float    TRK_GAIN            = 0.55f;   // fraction of the angular err
 constexpr int      TRK_YAW_SIGN        = 1;       // flip if the head turns away from you
 constexpr int      TRK_PITCH_SIGN      = 1;
 constexpr uint32_t TRK_LOST_MS         = 6000;    // return to home after this long without target
-constexpr uint32_t TRK_ASSIST_MS       = 1000;     // server face-detect assist interval (0 = off)
-constexpr int      TRK_ASSIST_JPEG_Q   = 40;
+constexpr uint32_t TRK_ASSIST_MS       = 1500;     // server face-detect assist interval (0 = off)
+constexpr int      TRK_ASSIST_JPEG_Q   = 30;
 
 // ---- Servo ranges (BSP units: 10 = 1 degree) ----
 constexpr int      YAW_MIN             = -900;

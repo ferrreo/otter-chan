@@ -27,6 +27,8 @@ SemaphoreHandle_t g_ringMutex;
 int16_t* g_partial;
 size_t g_partialSamples = 0;
 std::atomic<size_t> g_rxBytes{0}, g_playedBytes{0};
+std::atomic<uint32_t> g_underruns{0};
+bool g_wasPlaying = false;
 uint32_t g_micStartedMs = 0;
 // last two chunks handed to M5.Speaker must stay valid; we hand out ring slots directly
 // and only recycle a slot once the speaker reports it finished (isPlaying < 2 keeps 1 in flight).
@@ -131,7 +133,14 @@ void speakerStep() {
         g_playedBytes += c.samples * sizeof(int16_t);
         M5.Speaker.playRaw(c.pcm, c.samples, AUDIO_RATE, false, 1, 0, false);
     }
-    if (M5.Speaker.isPlaying(0) == 0) g_state.mouthOpen = 0.f;
+    bool playing = M5.Speaker.isPlaying(0) != 0;
+    if (!playing) g_state.mouthOpen = 0.f;
+    // a dry spell = speaker idle while we are mid-utterance and the ring has nothing queued
+    xSemaphoreTake(g_ringMutex, portMAX_DELAY);
+    bool ringEmpty = g_ringTail == g_ringHead;
+    xSemaphoreGive(g_ringMutex);
+    if (g_wasPlaying && !playing && ringEmpty && g_state.mode == Mode::Speaking) g_underruns++;
+    g_wasPlaying = playing;
     vTaskDelay(pdMS_TO_TICKS(8));
 }
 
@@ -237,6 +246,7 @@ size_t playbackBacklogMs() {
 
 size_t bytesReceived() { return g_rxBytes; }
 size_t bytesPlayed() { return g_playedBytes; }
+uint32_t underruns() { return g_underruns; }
 
 void setVolume(uint8_t v) { g_volume = v; M5.Speaker.setVolume(v); }
 

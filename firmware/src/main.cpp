@@ -43,6 +43,7 @@ static bool g_conversation = false;     // wake word / button opened a session: 
 static bool g_endRequested = false;     // server asked to close the session after this reply
 static uint32_t g_sayStartedAt = 0;
 static bool g_sayEnded = false;
+static uint32_t g_loopMaxMs = 0, g_loopLast = 0;
 // captions arrive ahead of their audio; reveal each one when playback reaches its byte offset
 struct PendingCaption { String text; size_t atBytes; };
 static PendingCaption g_capQueue[8];
@@ -317,11 +318,13 @@ static void telemetry() {
     d["battery_pct"] = g_state.batteryPct.load();
     d["charging"] = g_state.charging.load();
     d["rssi"] = g_state.rssi.load();
-    d["yaw"] = M5StackChan.Motion.getCurrentYawAngle();
-    d["pitch"] = M5StackChan.Motion.getCurrentPitchAngle();
+    d["yaw"] = tracker::currentYaw();     // commanded angles: reading the servo bus blocks the loop for 100s of ms
+    d["pitch"] = tracker::currentPitch();
     d["target"] = g_state.targetVisible.load();
     d["camera"] = tracker::cameraOk();
     d["heap"] = ESP.getFreeHeap();
+    d["underruns"] = audio::underruns();
+    d["loop_max_ms"] = g_loopMaxMs; g_loopMaxMs = 0;
     d["psram"] = ESP.getFreePsram();
     d["uptime_s"] = now / 1000;
     net::sendJson(d);
@@ -363,6 +366,7 @@ void setup() {
 }
 
 void loop() {
+    { uint32_t t = millis(); if (g_loopLast && t - g_loopLast > g_loopMaxMs) g_loopMaxMs = t - g_loopLast; g_loopLast = t; }
     M5StackChan.update();   // M5.update() + head touch
     provisioning::pollSerial();
     uint32_t now = millis();
