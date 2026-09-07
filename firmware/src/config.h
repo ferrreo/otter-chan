@@ -66,9 +66,9 @@ constexpr int      TRK_ASSIST_JPEG_Q   = 40;
 // ---- Servo ranges (BSP units: 10 = 1 degree) ----
 constexpr int      YAW_MIN             = -900;
 constexpr int      YAW_MAX             = 900;
-constexpr int      PITCH_MIN           = 100;     // M5 recommends 5..85 deg for the pitch servo
+constexpr int      PITCH_MIN           = 50;      // M5 recommends 5..85 deg for the pitch servo
 constexpr int      PITCH_MAX           = 800;
-constexpr int      PITCH_HOME          = 450;
+constexpr int      PITCH_HOME          = 120;     // slightly above level: a seated face from a desk
 
 // ---- Misc ----
 constexpr uint32_t TELEMETRY_MS        = 10000;
