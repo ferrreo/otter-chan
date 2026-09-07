@@ -31,7 +31,7 @@ func Matches(text string, phrases []string, threshold int) (bool, int) {
 // match "tarquin" by being a substring of it.
 func partialRatio(phrase, transcript string) int {
 	n, h := []rune(phrase), []rune(transcript)
-	if len(n) == 0 || len(h) == 0 || len(h) < len(n)-2 {
+	if len(n) == 0 || len(h) == 0 || len(h) < len(n)-1 {
 		return 0
 	}
 	best := 0
