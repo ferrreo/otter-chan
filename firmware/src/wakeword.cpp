@@ -18,6 +18,7 @@ const esp_mn_iface_t* g_mn = nullptr;
 model_iface_data_t* g_model = nullptr;
 srmodel_list_t* g_models = nullptr;
 StreamBufferHandle_t g_stream = nullptr;
+StaticStreamBuffer_t g_streamCtl;   // control block must be internal; storage lives in PSRAM
 std::atomic<bool> g_enabled{false};
 std::atomic<bool> g_detected{false};
 std::atomic<bool> g_ok{false};
@@ -80,11 +81,13 @@ bool begin() {
     if (err && err->num > 0) log_w("wake: %d command phrases rejected", err->num);
     g_mn->print_active_speech_commands(g_model);
     g_chunk = g_mn->get_samp_chunksize(g_model);
-    g_stream = xStreamBufferCreate(AUDIO_RATE * 2 * sizeof(int16_t), 1);   // 2 s of slack
+    const size_t streamBytes = AUDIO_RATE * sizeof(int16_t);   // 1 s of slack
+    uint8_t* storage = (uint8_t*)heap_caps_malloc(streamBytes + 1, MALLOC_CAP_SPIRAM);
+    g_stream = xStreamBufferCreateStatic(streamBytes, 1, storage, &g_streamCtl);
     xTaskCreatePinnedToCore(detectTask, "wake", 6144, nullptr, 4, nullptr, 1);
     g_ok = true;
     g_enabled = true;
-    log_i("wake: MultiNet '%s' ready, chunk %d samples", name, g_chunk);
+    log_i("wake: MultiNet '%s' ready, chunk %d samples; internal heap free %u", name, g_chunk, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     return true;
 }
 
