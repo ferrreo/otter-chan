@@ -57,6 +57,7 @@ var Tools = []Tool{
 	tool("set_volume", "Set speaker volume 0-100.", `{"type":"object","properties":{"percent":{"type":"integer"}},"required":["percent"]}`),
 	tool("go_to_sleep", "Put yourself to sleep (screen and servos off) when asked.", `{"type":"object","properties":{}}`),
 	tool("set_tracking", "Enable or disable following the user with the camera.", `{"type":"object","properties":{"enabled":{"type":"boolean"}},"required":["enabled"]}`),
+	tool("end_conversation", "Close the listening session after this reply. Call it when the user dismisses you ('that will be all', 'thank you, that's everything', 'goodbye', 'go back to sleep') or clearly has nothing more to ask.", `{"type":"object","properties":{}}`),
 }
 
 // ToolRunner executes a tool. If it returns a non-empty image, it is attached to the next model turn.

@@ -1,12 +1,14 @@
 // Otter-chan — custom firmware for the M5Stack StackChan (CoreS3)
 //
 // Controls
-//   side (power) button  click  : open mic / close mic
+//   side (power) button  click  : open mic (conversation stays open until dismissed) / close mic
 //                        double : hard mute toggle (wake word off)
 //                        hold   : sleep / wake
 //   head touch panel     tap    : happy nod   swipe fwd/back : volume   hold : love
 //   screen               tap    : wink        hold : show IP / battery
-//   wake word            say the wake phrase (server-side check) to open the mic hands-free
+//   wake word            say the wake phrase (server-side check) to open the mic hands-free;
+//                        it stays open across turns until you dismiss him ("that will be all"),
+//                        click the button, or 3 minutes pass in silence
 //   bottom RST button    is wired to the chip reset line — it always reboots (hardware).
 //
 #include <Arduino.h>
@@ -36,6 +38,8 @@ static int16_t* g_preBuf;             // pre-roll ring (WAKE_PRE_SAMPLES)
 static size_t g_prePos = 0;
 static uint32_t g_lastTelemetry = 0;
 static bool g_followupPending = false;
+static bool g_conversation = false;     // wake word / button opened a session: mic stays open until dismissed
+static bool g_endRequested = false;     // server asked to close the session after this reply
 static uint32_t g_sayStartedAt = 0;
 static bool g_sayEnded = false;
 
@@ -100,11 +104,11 @@ static void setMode(Mode m) {
         case Mode::Listening:
             audio::setDirection(AudioDir::Mic);
             g_listenStart = millis(); g_lastSpeech = g_listenStart; g_heardSpeech = false;
-            g_listenWindowMs = g_followupPending ? LISTEN_FOLLOWUP_MS : LISTEN_NO_SPEECH_MS;
+            g_listenWindowMs = g_conversation ? CONVERSATION_IDLE_MS : (g_followupPending ? LISTEN_FOLLOWUP_MS : LISTEN_NO_SPEECH_MS);
             g_followupPending = false;
             leds::set(leds::Pattern::Listening);
             g_state.setExpression(Expression::Neutral);
-            g_state.lock(); g_state.statusLine = "listening"; g_state.unlock();
+            g_state.lock(); g_state.statusLine = g_conversation ? "listening (say 'that will be all' to dismiss)" : "listening"; g_state.unlock();
             net::sendJson("listen_start");
             break;
         case Mode::Thinking:
@@ -177,7 +181,7 @@ static void onServerJson(JsonDocument& d) {
         if (d["name"].is<const char*>()) g_state.setCaption(String("hi, I'm ") + d["name"].as<const char*>(), 3000);
         g_state.setExpression(Expression::Happy, 1500);
     } else if (!strcmp(type, "wake")) {
-        if (g_state.mode == Mode::Standby) { audio::playChime(0); g_state.setExpression(Expression::Surprised, 800); setMode(Mode::Listening); }
+        if (g_state.mode == Mode::Standby) { g_conversation = true; g_endRequested = false; audio::playChime(0); g_state.setExpression(Expression::Surprised, 800); setMode(Mode::Listening); }
     } else if (!strcmp(type, "transcript")) {
         g_state.setCaption(String("\"") + (d["text"] | "") + "\"", 8000);
         if (d["final"] | false) { if (g_state.mode == Mode::Listening) setMode(Mode::Thinking); }
@@ -192,6 +196,7 @@ static void onServerJson(JsonDocument& d) {
     } else if (!strcmp(type, "say_end")) {
         g_sayEnded = true;
         g_followupPending = d["followup"] | g_followupPending;
+        if (d["end"] | false) g_endRequested = true;
     } else if (!strcmp(type, "expression")) {
         Expression e; if (expressionFromName(d["name"] | "", e)) g_state.setExpression(e, d["ms"] | 0);
     } else if (!strcmp(type, "caption")) {
@@ -236,9 +241,10 @@ static void onServerJson(JsonDocument& d) {
         if (n) { bool ok = net::sendBin(BIN_PHOTO, jpg, n); free(jpg); if (!ok) log_w("photo: send failed"); }
         else { JsonDocument r; r["type"] = "photo_failed"; net::sendJson(r); }
     } else if (!strcmp(type, "listen")) {
-        if (g_state.mode == Mode::Standby) setMode(Mode::Listening);
+        if (g_state.mode == Mode::Standby) { g_conversation = true; g_endRequested = false; setMode(Mode::Listening); }
     } else if (!strcmp(type, "cancel")) {
         audio::clearPlayback();
+        g_conversation = false;
         if (g_state.mode != Mode::Sleep && g_state.mode != Mode::Muted) setMode(Mode::Standby);
     } else if (!strcmp(type, "sleep")) {
         if (g_state.mode != Mode::Sleep) goToSleep();
@@ -345,10 +351,10 @@ void loop() {
         else { audio::clearPlayback(); audio::playChime(2); setMode(Mode::Muted); g_state.setCaption("muted", 1500); }
     } else if (M5.BtnPWR.wasClicked()) {
         switch (m) {
-            case Mode::Standby:   audio::playChime(0); setMode(Mode::Listening); break;
-            case Mode::Listening: net::sendJson("listen_cancel"); audio::playChime(1); setMode(Mode::Standby); g_state.setCaption("mic closed", 1200); break;
-            case Mode::Thinking:  net::sendJson("cancel"); setMode(Mode::Standby); break;
-            case Mode::Speaking:  net::sendJson("cancel"); audio::clearPlayback(); g_followupPending = false; setMode(Mode::Standby); break;
+            case Mode::Standby:   g_conversation = true; g_endRequested = false; audio::playChime(0); setMode(Mode::Listening); break;
+            case Mode::Listening: g_conversation = false; net::sendJson("listen_cancel"); audio::playChime(1); setMode(Mode::Standby); g_state.setCaption("mic closed", 1200); break;
+            case Mode::Thinking:  g_conversation = false; net::sendJson("cancel"); setMode(Mode::Standby); break;
+            case Mode::Speaking:  g_conversation = false; net::sendJson("cancel"); audio::clearPlayback(); g_followupPending = false; setMode(Mode::Standby); break;
             case Mode::Muted:     setMode(Mode::Standby); break;
             default: break;
         }
@@ -362,6 +368,7 @@ void loop() {
     } else if (!net::connected() && (m == Mode::Listening || m == Mode::Thinking)) {
         g_state.setExpression(Expression::Confused, 2000);
         g_state.setCaption("lost the server", 3000);
+        g_conversation = false;
         setMode(Mode::Standby);
     }
 
@@ -373,7 +380,8 @@ void loop() {
             setMode(Mode::Thinking);
         } else if (!g_heardSpeech && now - g_listenStart > g_listenWindowMs) {
             net::sendJson("listen_cancel");
-            g_state.setExpression(Expression::Confused, 1500);
+            if (g_conversation) { g_conversation = false; g_state.setCaption("session closed", 1500); audio::playChime(1); }
+            else g_state.setExpression(Expression::Confused, 1500);
             setMode(Mode::Standby);
         } else if (now - g_listenStart > LISTEN_MAX_MS) {
             JsonDocument d; d["type"] = "listen_end"; d["reason"] = "max"; net::sendJson(d);
@@ -389,7 +397,8 @@ void loop() {
     // ---- end of speech ----
     if (m == Mode::Speaking && g_sayEnded && audio::isPlaybackIdle()) {
         g_state.mouthOpen = 0.f;
-        if (g_followupPending) { setMode(Mode::Listening); }
+        if (g_endRequested) { g_conversation = false; g_endRequested = false; audio::playChime(1); setMode(Mode::Standby); g_state.setCaption("", 1); }
+        else if (g_conversation || g_followupPending) { setMode(Mode::Listening); }
         else { setMode(Mode::Standby); g_state.setCaption("", 1); }
     }
 

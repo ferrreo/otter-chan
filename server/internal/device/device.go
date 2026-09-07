@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,9 @@ import (
 	"otter-chan/server/internal/vision"
 	"otter-chan/server/internal/wake"
 )
+
+// dismissRe catches dismissals even if the model forgets to call end_conversation.
+var dismissRe = regexp.MustCompile(`(?i)\b(that('ll| will| would) be all|that's (all|everything)|thanks?,? that's (all|it)|dismissed|good ?bye|good night|go (back )?to sleep|nothing (else|more))\b`)
 
 const (
 	BinAudio     = 0x01
@@ -89,6 +93,8 @@ type Session struct {
 
 	queue chan queued
 	done  chan struct{}
+
+	endAfterReply atomic.Bool
 }
 
 func (h *Hub) Serve(ws *websocket.Conn, name string) {
@@ -361,7 +367,8 @@ func (s *Session) RespondTo(ctx context.Context, text string, images [][]byte) (
 	if !started {
 		s.SendJSON(s.J("say_start", "text", "", "expression", "neutral", "followup", false))
 	}
-	s.SendJSON(s.J("say_end", "followup", followup && started))
+	end := s.endAfterReply.Swap(false) || dismissRe.MatchString(text)
+	s.SendJSON(s.J("say_end", "followup", followup && started && !end, "end", end))
 	if err == nil {
 		err = sayErr
 	}
@@ -526,6 +533,8 @@ func (s *Session) runTool(ctx context.Context, name string, args map[string]any)
 	case "set_tracking":
 		en, _ := args["enabled"].(bool)
 		s.SendJSON(s.J("config", "tracking", en))
+	case "end_conversation":
+		s.endAfterReply.Store(true)
 	default:
 		return map[string]any{"error": "unknown tool " + name}, nil
 	}

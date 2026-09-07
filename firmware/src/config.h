@@ -40,6 +40,7 @@ constexpr uint32_t VAD_ONSET_MS        = 96;      // consecutive speech to trigg
 constexpr uint32_t VAD_END_SILENCE_MS  = 900;     // trailing silence ends an utterance
 constexpr uint32_t LISTEN_NO_SPEECH_MS = 6000;    // cancel if nobody talks
 constexpr uint32_t LISTEN_FOLLOWUP_MS  = 4000;    // shorter window after a reply
+constexpr uint32_t CONVERSATION_IDLE_MS = 180000;  // after the wake word the mic stays open until dismissed, or this long with no speech
 constexpr uint32_t LISTEN_MAX_MS       = 20000;   // hard cap per utterance
 constexpr uint32_t WAKE_MIN_SPEECH_MS  = 250;     // ignore very short bursts for wake clips
 constexpr uint32_t WAKE_COOLDOWN_MS    = 1500;
