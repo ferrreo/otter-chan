@@ -26,17 +26,16 @@ func Matches(text string, phrases []string, threshold int) (bool, int) {
 	return best >= threshold, best
 }
 
-// partialRatio ~ rapidfuzz.partial_ratio: best similarity of needle against any window of haystack.
-func partialRatio(needle, hay string) int {
-	n, h := []rune(needle), []rune(hay)
-	if len(n) == 0 || len(h) == 0 {
+// partialRatio: best similarity of the whole phrase against any same-length window of the
+// transcript. The phrase is always the needle, so a short noise transcript like "in" cannot
+// match "tarquin" by being a substring of it.
+func partialRatio(phrase, transcript string) int {
+	n, h := []rune(phrase), []rune(transcript)
+	if len(n) == 0 || len(h) == 0 || len(h) < len(n)-2 {
 		return 0
 	}
-	if len(h) < len(n) {
-		n, h = h, n
-	}
 	best := 0
-	for start := 0; start+len(n) <= len(h)+len(n)/2; start++ {
+	for start := 0; start < len(h); start++ {
 		end := start + len(n)
 		if end > len(h) {
 			end = len(h)
@@ -46,6 +45,9 @@ func partialRatio(needle, hay string) int {
 		score := 100 * (len(n) + len(win) - d) / (len(n) + len(win))
 		if score > best {
 			best = score
+		}
+		if end == len(h) {
+			break
 		}
 	}
 	return best

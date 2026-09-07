@@ -99,6 +99,26 @@ void applyServo(float errX, float errY, int speed) {
     M5StackChan.Motion.move(g_yaw, g_pitch, speed);
 }
 
+// frame2jpg() mallocs its output from internal RAM, which is scarce here; collect the JPEG into
+// a PSRAM buffer via the callback variant instead.
+struct JpegSink { uint8_t* buf; size_t len, cap; };
+static size_t jpegSinkCb(void* arg, size_t index, const void* data, size_t len) {
+    JpegSink* s = (JpegSink*)arg;
+    if (index + len > s->cap) return 0;
+    memcpy(s->buf + index, data, len);
+    s->len = index + len;
+    return len;
+}
+
+static bool frameToJpegPsram(camera_fb_t* fb, int quality, uint8_t** out, size_t* len) {
+    JpegSink sink{(uint8_t*)heap_caps_malloc(256 * 1024, MALLOC_CAP_SPIRAM), 0, 256 * 1024};
+    if (!sink.buf) return false;
+    bool ok = frame2jpg_cb(fb, quality, jpegSinkCb, &sink) && sink.len > 0;
+    if (!ok) { free(sink.buf); return false; }
+    *out = sink.buf; *len = sink.len;
+    return true;
+}
+
 void runScript(Script s) {
     auto& mo = M5StackChan.Motion;
     switch (s) {
@@ -141,7 +161,7 @@ void trackTask(void*) {
             uint32_t now = millis();
             if (fb && TRK_ASSIST_MS && net::connected() && now - lastAssist > TRK_ASSIST_MS) {
                 uint8_t* jpg = nullptr; size_t jl = 0;
-                if (frame2jpg(fb, TRK_ASSIST_JPEG_Q, &jpg, &jl) && jpg) {
+                if (frameToJpegPsram(fb, TRK_ASSIST_JPEG_Q, &jpg, &jl)) {
                     net::sendBin(BIN_TRACK_JPEG, jpg, jl, true);
                     free(jpg);
                 }
@@ -239,14 +259,12 @@ size_t captureJpeg(uint8_t** out, int quality) {
     *out = nullptr;
     if (!g_camOk) return 0;
     size_t len = 0;
-    if (xSemaphoreTake(g_camMutex, pdMS_TO_TICKS(1000)) != pdTRUE) return 0;
+    if (xSemaphoreTake(g_camMutex, pdMS_TO_TICKS(3000)) != pdTRUE) { log_w("photo: camera busy"); return 0; }
     camera_fb_t* fb = esp_camera_fb_get();
     if (fb) {
-        if (fb->format == PIXFORMAT_GRAYSCALE || fb->format == PIXFORMAT_RGB565 || fb->format == PIXFORMAT_YUV422) {
-            if (!frame2jpg(fb, quality, out, &len)) len = 0;
-        }
+        if (!frameToJpegPsram(fb, quality, out, &len)) { log_w("photo: jpeg encode failed"); len = 0; }
         esp_camera_fb_return(fb);
-    }
+    } else log_w("photo: no frame");
     xSemaphoreGive(g_camMutex);
     return len;
 }

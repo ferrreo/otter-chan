@@ -9,7 +9,7 @@ func TestMatches(t *testing.T) {
 			t.Errorf("%q should wake (score %d)", s, sc)
 		}
 	}
-	for _, s := range []string{"what time is it", "turn the lights on", ""} {
+	for _, s := range []string{"what time is it", "turn the lights on", "", "in", "a", "the", "ok", "win", "tar", "quin"} {
 		if ok, sc := Matches(s, phrases, 72); ok {
 			t.Errorf("%q should not wake (score %d)", s, sc)
 		}
