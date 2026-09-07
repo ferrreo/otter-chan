@@ -1,0 +1,5 @@
+# Overlay for running outside Coolify: publishes 8480 on localhost.
+services:
+  tarquin:
+    ports:
+      - "127.0.0.1:8480:8480"

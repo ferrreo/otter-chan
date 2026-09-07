@@ -1,15 +1,16 @@
 # Coolify: add this repo as a "Docker Compose" resource. Set OTTER_TOKENS and META_MODEL_API_KEY in
 # the Coolify environment, then give the `tarquin` service the domain https://bot.ferreo.dev:8480
 # (Coolify's proxy terminates TLS; the robot connects to wss://bot.ferreo.dev/ws/device).
-# Local: `cp .env.example .env && docker compose up --build` and use ws://localhost:8480.
+# Local: `cp .env.example .env && docker compose -f docker-compose.yml -f docker-compose.local.yml up --build`.
 services:
   tarquin:
     build:
       context: .
       dockerfile: server/Dockerfile
     restart: unless-stopped
-    ports:
-      - "${OTTER_BIND:-127.0.0.1}:8480:8480"
+    expose:
+      - "8480"
+    # Local (no proxy): docker compose -f docker-compose.yml -f docker-compose.local.yml up
     environment:
       OTTER_TOKENS: ${OTTER_TOKENS:?set device:<token>,<bot>:<token> in Coolify}
       META_MODEL_API_KEY: ${META_MODEL_API_KEY:?Meta Model API key (Muse Code plan key works)}
