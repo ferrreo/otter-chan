@@ -327,7 +327,7 @@ func (s *Session) pipeline(ctx context.Context, pcm []byte) {
 	}
 	log.Printf("heard: %q", text)
 	if len(strings.Trim(text, ".,!? ")) < 2 {
-		s.speak(ctx, "[confused] I beg your pardon, I didn't quite catch that.", "", false)
+		s.SendJSON(s.J("nothing_heard"))
 		return
 	}
 	s.SendJSON(s.J("transcript", "text", text, "final", true))

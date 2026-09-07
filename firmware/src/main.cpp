@@ -42,6 +42,26 @@ static bool g_conversation = false;     // wake word / button opened a session: 
 static bool g_endRequested = false;     // server asked to close the session after this reply
 static uint32_t g_sayStartedAt = 0;
 static bool g_sayEnded = false;
+// captions arrive ahead of their audio; reveal each one when playback reaches its byte offset
+struct PendingCaption { String text; size_t atBytes; };
+static PendingCaption g_capQueue[8];
+static int g_capHead = 0, g_capTail = 0;
+static SemaphoreHandle_t g_capMutex;
+static void queueCaption(const String& t) {
+    xSemaphoreTake(g_capMutex, portMAX_DELAY);
+    if ((g_capTail + 1) % 8 != g_capHead) { g_capQueue[g_capTail] = {t, audio::bytesReceived()}; g_capTail = (g_capTail + 1) % 8; }
+    xSemaphoreGive(g_capMutex);
+}
+static void clearCaptions() { xSemaphoreTake(g_capMutex, portMAX_DELAY); g_capHead = g_capTail = 0; xSemaphoreGive(g_capMutex); }
+static void revealCaptions() {
+    xSemaphoreTake(g_capMutex, portMAX_DELAY);
+    size_t played = audio::bytesPlayed();
+    while (g_capHead != g_capTail && g_capQueue[g_capHead].atBytes <= played + 2048) {
+        g_state.setCaption(g_capQueue[g_capHead].text, 0);
+        g_capHead = (g_capHead + 1) % 8;
+    }
+    xSemaphoreGive(g_capMutex);
+}
 
 static void setMode(Mode m);
 
@@ -189,6 +209,7 @@ static void onServerJson(JsonDocument& d) {
         if (g_state.mode == Mode::Listening) setMode(Mode::Thinking);
     } else if (!strcmp(type, "say_start")) {
         audio::clearPlayback();
+        clearCaptions();
         Expression e; if (expressionFromName(d["expression"] | "", e)) g_state.setExpression(e);
         if (d["text"].is<const char*>()) g_state.setCaption(d["text"].as<const char*>(), 0);
         g_followupPending = d["followup"] | false;
@@ -200,7 +221,12 @@ static void onServerJson(JsonDocument& d) {
     } else if (!strcmp(type, "expression")) {
         Expression e; if (expressionFromName(d["name"] | "", e)) g_state.setExpression(e, d["ms"] | 0);
     } else if (!strcmp(type, "caption")) {
-        g_state.setCaption(d["text"] | "", d["ms"] | 6000);
+        if (g_state.mode == Mode::Speaking && (d["ms"] | 0) == 0) queueCaption(d["text"] | "");
+        else g_state.setCaption(d["text"] | "", d["ms"] | 6000);
+    } else if (!strcmp(type, "nothing_heard")) {
+        // empty transcript: keep the session open quietly, or drop out if this was a one-shot
+        if (g_conversation) { g_state.setExpression(Expression::Confused, 900); setMode(Mode::Listening); }
+        else { g_state.setExpression(Expression::Confused, 1500); setMode(Mode::Standby); }
     } else if (!strcmp(type, "bots")) {
         g_state.lock();
         int n = 0;
@@ -310,6 +336,7 @@ void setup() {
     g_wakeBuf = (int16_t*)heap_caps_malloc(WAKE_CLIP_SAMPLES * sizeof(int16_t), MALLOC_CAP_SPIRAM);
     g_preBuf = (int16_t*)heap_caps_calloc(WAKE_PRE_SAMPLES, sizeof(int16_t), MALLOC_CAP_SPIRAM);
     g_utterMutex = xSemaphoreCreateMutex();
+    g_capMutex = xSemaphoreCreateMutex();
 
     // Hold the side button during boot -> setup portal. Also if nothing configured yet.
     M5.update();
@@ -388,14 +415,16 @@ void loop() {
             setMode(Mode::Thinking);
         }
     }
-    if (m == Mode::Thinking && now - g_listenStart > 45000) {   // server never answered
+    if (m == Mode::Thinking && now - g_listenStart > THINK_TIMEOUT_MS) {   // server never answered
         g_state.setExpression(Expression::Sad, 2000);
         g_state.setCaption("no answer from server", 3000);
         setMode(Mode::Standby);
     }
 
     // ---- end of speech ----
+    if (m == Mode::Speaking) revealCaptions();
     if (m == Mode::Speaking && g_sayEnded && audio::isPlaybackIdle()) {
+        revealCaptions();
         g_state.mouthOpen = 0.f;
         if (g_endRequested) { g_conversation = false; g_endRequested = false; audio::playChime(1); setMode(Mode::Standby); g_state.setCaption("", 1); }
         else if (g_conversation || g_followupPending) { setMode(Mode::Listening); }

@@ -26,6 +26,8 @@ SemaphoreHandle_t g_ringMutex;
 // partial chunk accumulation from the network
 int16_t* g_partial;
 size_t g_partialSamples = 0;
+std::atomic<size_t> g_rxBytes{0}, g_playedBytes{0};
+uint32_t g_micStartedMs = 0;
 // last two chunks handed to M5.Speaker must stay valid; we hand out ring slots directly
 // and only recycle a slot once the speaker reports it finished (isPlaying < 2 keeps 1 in flight).
 
@@ -66,6 +68,7 @@ void startMic() {
     M5.Mic.config(cfg);
     M5.Mic.begin();
     g_noise = 400.f; g_speechRunMs = g_silenceRunMs = 0;
+    g_micStartedMs = millis();
 }
 
 void startSpeaker() {
@@ -107,6 +110,7 @@ void micStep() {
     static int primed = 0;
     if (primed < 2) { primed++; return; }
     VadResult v = runVad(g_micBuf[done], MIC_FRAME_SAMPLES);
+    if (millis() - g_micStartedMs < MIC_SETTLE_MS) { v.speech = false; g_speechRunMs = 0; }   // codec switch-over / echo tail
     if (g_handler) g_handler(g_micBuf[done], MIC_FRAME_SAMPLES, v);
 }
 
@@ -124,6 +128,7 @@ void speakerStep() {
         for (size_t i = 0; i < c.samples; i += 4) acc += (double)c.pcm[i] * c.pcm[i];
         float rms = sqrtf((float)(acc / (c.samples / 4)));
         g_state.mouthOpen = fminf(1.f, rms / 6000.f);
+        g_playedBytes += c.samples * sizeof(int16_t);
         M5.Speaker.playRaw(c.pcm, c.samples, AUDIO_RATE, false, 1, 0, false);
     }
     if (M5.Speaker.isPlaying(0) == 0) g_state.mouthOpen = 0.f;
@@ -192,6 +197,7 @@ bool pushPcm(const uint8_t* data, size_t bytes) {
     if (need > free) return false;
     const int16_t* s = (const int16_t*)data;
     size_t n = bytes / 2;
+    g_rxBytes += bytes;
     while (n) {
         size_t take = min(n, SPK_CHUNK_SAMPLES - g_partialSamples);
         memcpy(g_partial + g_partialSamples, s, take * sizeof(int16_t));
@@ -208,6 +214,7 @@ static void flushPartial() {
 void clearPlayback() {
     xSemaphoreTake(g_ringMutex, portMAX_DELAY);
     g_ringTail = g_ringHead; g_partialSamples = 0;
+    g_rxBytes = 0; g_playedBytes = 0;
     xSemaphoreGive(g_ringMutex);
     M5.Speaker.stop(0);
     g_state.mouthOpen = 0.f;
@@ -227,6 +234,9 @@ size_t playbackBacklogMs() {
     xSemaphoreGive(g_ringMutex);
     return n * SPK_CHUNK_SAMPLES * 1000 / AUDIO_RATE;
 }
+
+size_t bytesReceived() { return g_rxBytes; }
+size_t bytesPlayed() { return g_playedBytes; }
 
 void setVolume(uint8_t v) { g_volume = v; M5.Speaker.setVolume(v); }
 
