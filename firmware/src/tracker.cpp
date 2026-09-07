@@ -41,7 +41,7 @@ camera_config_t makeConfig(pixformat_t fmt) {
     c.xclk_freq_hz = 20000000;
     c.ledc_timer = LEDC_TIMER_0; c.ledc_channel = LEDC_CHANNEL_0;
     c.pixel_format = fmt;
-    c.frame_size = FRAMESIZE_QVGA;
+    c.frame_size = (CAM_W == 640) ? FRAMESIZE_VGA : FRAMESIZE_QVGA;
     c.jpeg_quality = 12;
     c.fb_count = 2;
     c.fb_location = CAMERA_FB_IN_PSRAM;
@@ -207,14 +207,10 @@ bool begin() {
     // The camera's SCCB shares the internal I2C bus with the PMIC/touch/IO-expander.
     // Hand the bus to the camera driver for init, then give it back to M5Unified.
     M5.In_I2C.release();
-    camera_config_t cfg = makeConfig(PIXFORMAT_GRAYSCALE);
+    // GC0308 advertises GRAYSCALE but delivers short frames (61440 != 76800); RGB565 is reliable
+    // and toLuma() extracts luminance from it.
+    camera_config_t cfg = makeConfig(PIXFORMAT_RGB565);
     esp_err_t err = esp_camera_init(&cfg);
-    if (err != ESP_OK) {
-        log_w("camera grayscale init failed (0x%x), trying RGB565", err);
-        esp_camera_deinit();
-        cfg = makeConfig(PIXFORMAT_RGB565);
-        err = esp_camera_init(&cfg);
-    }
     if (err == ESP_OK) {
         sensor_t* s = esp_camera_sensor_get();
         if (s) { s->set_vflip(s, 0); s->set_hmirror(s, 0); }

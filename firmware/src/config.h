@@ -45,9 +45,9 @@ constexpr uint32_t WAKE_MIN_SPEECH_MS  = 250;     // ignore very short bursts fo
 constexpr uint32_t WAKE_COOLDOWN_MS    = 1500;
 
 // ---- Camera / tracking ----
-constexpr int      CAM_W               = 320;
-constexpr int      CAM_H               = 240;
-constexpr int      TRK_DS              = 4;       // downsample factor for motion map
+constexpr int      CAM_W               = 640;
+constexpr int      CAM_H               = 480;
+constexpr int      TRK_DS              = 8;       // downsample factor for motion map (80x60)
 constexpr int      TRK_W               = CAM_W / TRK_DS;
 constexpr int      TRK_H               = CAM_H / TRK_DS;
 constexpr int      TRK_DIFF_THRESHOLD  = 28;      // luma delta that counts as motion
@@ -60,8 +60,8 @@ constexpr float    TRK_GAIN            = 0.55f;   // fraction of the angular err
 constexpr int      TRK_YAW_SIGN        = 1;       // flip if the head turns away from you
 constexpr int      TRK_PITCH_SIGN      = 1;
 constexpr uint32_t TRK_LOST_MS         = 6000;    // return to home after this long without target
-constexpr uint32_t TRK_ASSIST_MS       = 700;     // server face-detect assist interval (0 = off)
-constexpr int      TRK_ASSIST_JPEG_Q   = 60;
+constexpr uint32_t TRK_ASSIST_MS       = 1000;     // server face-detect assist interval (0 = off)
+constexpr int      TRK_ASSIST_JPEG_Q   = 40;
 
 // ---- Servo ranges (BSP units: 10 = 1 degree) ----
 constexpr int      YAW_MIN             = -900;
