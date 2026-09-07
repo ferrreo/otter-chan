@@ -36,6 +36,8 @@ type Engine struct {
 	stdout   *bufio.Reader
 	serveOK  bool
 	serveBad bool
+
+	firstTimeout time.Duration
 }
 
 func New(bin, voice string, args []string, rate, cacheDir string) *Engine {
@@ -101,14 +103,6 @@ func (e *Engine) Synthesize(ctx context.Context, text string) ([]byte, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	w, err := e.synth(ctx, text)
-	if err != nil && e.Voice != FallbackVoice {
-		// An otter-vox without runtime-loadable voices rejects the clone with VoiceNotFound.
-		log.Printf("tts: voice %q failed (%v); falling back to %q", e.Voice, err, FallbackVoice)
-		e.Voice = FallbackVoice
-		e.stop()
-		e.serveBad = false
-		w, err = e.synth(ctx, text)
-	}
 	if err != nil {
 		return nil, err
 	}
@@ -167,13 +161,20 @@ func (e *Engine) viaServe(ctx context.Context, text string) (*audio.WAV, error) 
 		}
 		e.serveOK = true
 		return r.w, nil
-	case <-time.After(120 * time.Second):
+	case <-time.After(e.timeout()):
 		e.stop()
 		return nil, errors.New("tts timeout")
 	case <-ctx.Done():
 		e.stop()
 		return nil, ctx.Err()
 	}
+}
+
+func (e *Engine) timeout() time.Duration {
+	if e.firstTimeout > 0 {
+		return e.firstTimeout
+	}
+	return 180 * time.Second
 }
 
 func (e *Engine) viaSpawn(ctx context.Context, text string) (*audio.WAV, error) {
@@ -201,17 +202,40 @@ func (e *Engine) viaSpawn(ctx context.Context, text string) (*audio.WAV, error) 
 func (e *Engine) Warm(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.checkVoice()
 	t0 := time.Now()
-	_, err := e.synth(ctx, "Good day. Tarquin at your service.")
-	if err != nil && e.Voice != FallbackVoice {
-		log.Printf("tts: voice %q failed (%v); falling back to %q", e.Voice, err, FallbackVoice)
-		e.Voice = FallbackVoice
-		e.stop()
-		e.serveBad = false
-		_, err = e.synth(ctx, "Good day. Tarquin at your service.")
-	}
+	e.firstTimeout = 10 * time.Minute // model load + Vulkan shader compile can take a while
+	_, err := e.synth(ctx, "Good day.")
+	e.firstTimeout = 0
 	log.Printf("tts: warm-up done in %.1fs (err=%v)", time.Since(t0).Seconds(), err)
 	return err
+}
+
+// checkVoice falls back to an embedded clone only if the configured voice exists neither as an
+// embedded otter-vox voice nor as a voices/NAME.codes file next to the model.
+func (e *Engine) checkVoice() {
+	if e.Voice == FallbackVoice {
+		return
+	}
+	out, _ := exec.Command(e.Bin, "--list-voices").Output()
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.TrimSpace(line) == e.Voice {
+			return
+		}
+	}
+	dirs := []string{"/usr/share/otter-shell/models/vox/audio8"}
+	for i, a := range e.Args {
+		if a == "--model-dir" && i+1 < len(e.Args) {
+			dirs = append([]string{e.Args[i+1]}, dirs...)
+		}
+	}
+	for _, d := range dirs {
+		if _, err := os.Stat(filepath.Join(d, "voices", e.Voice+".codes")); err == nil {
+			return
+		}
+	}
+	log.Printf("tts: voice %q not found (embedded or voices/%s.codes); using %q", e.Voice, e.Voice, FallbackVoice)
+	e.Voice = FallbackVoice
 }
 
 func (e *Engine) Healthy() bool {
