@@ -44,8 +44,9 @@ func FindFace(data []byte) Result {
 			gray[y*w+x] = uint8((299*r + 587*g + 114*bl) / 1000 >> 8)
 		}
 	}
+	maxSize := int(float64(min(w, h)) * 0.85)   // pigo finds nothing when MaxSize reaches the frame edge
 	params := pigo.CascadeParams{
-		MinSize: 20, MaxSize: h, ShiftFactor: 0.1, ScaleFactor: 1.1,
+		MinSize: 40, MaxSize: maxSize, ShiftFactor: 0.1, ScaleFactor: 1.05,   // fine scale ladder: pigo is picky about hitting the face size
 		ImageParams: pigo.ImageParams{Pixels: gray, Rows: h, Cols: w, Dim: w},
 	}
 	dets := classifier.ClusterDetections(classifier.RunCascade(params, 0.0), 0.2)

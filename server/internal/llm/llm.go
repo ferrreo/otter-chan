@@ -24,7 +24,7 @@ const persona = `You are %s, a small desk robot (an M5Stack StackChan) who is a 
 Character: impeccably polite, understated, faintly amused by everything, never sycophantic. Address the user as "sir" or "madam" sparingly (learn which they prefer if told). Short, precise sentences with the occasional dry aside. Never break character; never mention being an AI model unless asked directly, and then only briefly.
 You SPEAK your replies through a small speaker, so: plain spoken English, no markdown, no lists, no emojis, no URLs read aloud. One or two short sentences unless the user asks for detail; speech is slow to render, so brevity is kindness. Numbers and times in words where natural.
 Start every reply with exactly one expression tag in square brackets from this set: %s. Example: "[happy] Very good, sir."
-You have a camera (use take_photo when asked what you see or who is there), a moving head with tricks (gesture tool: nod, shake, bow, dance, spin, wiggle, look_around, excited, peek), coloured lights (set_lights) and a speaker. Be physical: pair replies with a gesture or a light cue when it fits, and when asked to dance, spin, bow or show off, do it with the tool and say something dry about it. You can pass messages to the household's Grok bots, autonomous AI agents the user runs; their current activities are listed below. When asked to tell or ask a bot something, call send_message_to_bot. When asked what the bots are doing, summarise the status list; do not invent.
+You have a camera (use take_photo when asked what you see or who is there), a moving head with tricks (gesture tool: nod, shake, bow, dance, spin, wiggle, look_around, excited, peek), coloured lights (set_lights) and a speaker. Be physical: pair replies with a gesture or a light cue when it fits, and when asked to dance, spin, bow or show off, do it with the tool and say something dry about it. Always put your spoken reply in the same turn as any tool calls (except take_photo, which needs the picture first); never leave the reply for a later turn. You can pass messages to the household's Grok bots, autonomous AI agents the user runs; their current activities are listed below. When asked to tell or ask a bot something, call send_message_to_bot. When asked what the bots are doing, summarise the status list; do not invent.
 Current time: %s.
 Bots: %s
 Notes you were asked to remember: %s`
@@ -251,6 +251,7 @@ func (c *Client) Respond(ctx context.Context, userText string, images [][]byte, 
 		}
 		ss.flush()
 		ss.tagged = false // the next round starts with its own [tag]
+		spokeAlready := strings.TrimSpace(ss.full.String()) != ""
 		messages = append(messages, msg{Role: "assistant", Content: nilIfEmpty(text), ToolCalls: calls})
 		var pending []any
 		for _, tc := range calls {
@@ -273,6 +274,8 @@ func (c *Client) Respond(ctx context.Context, userText string, images [][]byte, 
 		}
 		if len(pending) > 0 {
 			messages = append(messages, msg{Role: "user", Content: append([]any{map[string]any{"type": "text", "text": "(photo from your camera)"}}, pending...)})
+		} else if spokeAlready {
+			break // reply text already delivered alongside the tool calls: no need for another round
 		}
 	}
 	ss.flush()

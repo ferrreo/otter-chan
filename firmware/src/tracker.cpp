@@ -99,6 +99,7 @@ void applyServo(float errX, float errY, int speed) {
     float dPitch = -errY * (CAM_VFOV_DEG / 2) * TRK_GAIN * 10 * TRK_PITCH_SIGN;
     g_yaw = constrain(g_yaw + (int)dYaw, YAW_MIN, YAW_MAX);
     g_pitch = constrain(g_pitch + (int)dPitch, PITCH_MIN, PITCH_MAX);
+    log_i("track: err (%.2f, %.2f) -> yaw %d pitch %d", errX, errY, g_yaw, g_pitch);
     M5StackChan.Motion.move(g_yaw, g_pitch, speed);
 }
 
@@ -200,8 +201,10 @@ void talkMotion(uint32_t now) {
 void trackTask(void*) {
     uint32_t lastAssist = 0;
     for (;;) {
-        Script s = g_script.exchange(Script::None);
-        if (s != Script::None && !g_frozen) { runScript(s); g_pauseUntil = millis() + 800; continue; }
+        if (!g_frozen) {   // gestures queue while the mic is live and run as soon as it isn't
+            Script s = g_script.exchange(Script::None);
+            if (s != Script::None) { log_i("gesture %d", (int)s); runScript(s); g_pauseUntil = millis() + 800; continue; }
+        }
         if (g_talking && !g_frozen) { talkMotion(millis()); vTaskDelay(pdMS_TO_TICKS(100)); continue; }
         if (!g_enabled || !g_camOk || g_frozen) { vTaskDelay(pdMS_TO_TICKS(100)); continue; }   // frozen: no grabs, no uploads
 
@@ -229,9 +232,11 @@ void trackTask(void*) {
         uint32_t now = millis();
         float cx, cy; bool seen = false;
         // prefer a fresh face fix from the server
+        bool faceFix = false;
         if (g_faceFound && now - g_faceAt < TRK_FACE_VALID_MS) {
-            cx = g_faceX * 2.f - 1.f; cy = g_faceY * 2.f - 1.f; seen = true;
+            cx = g_faceX * 2.f - 1.f; cy = g_faceY * 2.f - 1.f; seen = true; faceFix = true;
         } else if (motionCentroid(cx, cy)) {
+            cy = 0.f;   // motion alone only steers yaw: flicker and shadows would otherwise walk the head up the wall
             seen = true;
         }
         memcpy(g_prev, g_cur, TRK_W * TRK_H);
@@ -245,6 +250,7 @@ void trackTask(void*) {
             if (now > g_pauseUntil && !g_frozen && g_state.mode != Mode::Sleep) {
                 float ex = fabsf(g_tx) > TRK_DEADBAND ? g_tx : 0.f;
                 float ey = fabsf(g_ty) > TRK_DEADBAND ? g_ty : 0.f;
+                if (!faceFix) ey = 0.f;
                 if (ex != 0.f || ey != 0.f) {
                     applyServo(ex, ey, 450);
                     // after moving the head the next diff frame is garbage; skip it
@@ -322,6 +328,8 @@ bool enabled() { return g_enabled; }
 bool cameraOk() { return g_camOk; }
 
 void onFaceResult(bool found, float x, float y, float w) {
+    static uint32_t n = 0;
+    if (found || (++n % 20) == 0) log_i("face fix: found=%d x=%.2f y=%.2f w=%.2f", (int)found, x, y, w);
     g_faceFound = found; g_faceX = x; g_faceY = y; g_faceW = w; g_faceAt = millis();
 }
 
