@@ -49,7 +49,7 @@ void initPalette() {
 // The blob is a closed radial curve r(t) = R * (1 + sum_k a_k * cos(k*t + p_k)), scaled per axis,
 // filled by scanline. Harmonics animate smoothly between presets so it wobbles, squashes and morphs.
 constexpr int HARM = 5;               // harmonics 1..5
-constexpr int POLY_N = 56;
+constexpr int POLY_N = 128;
 struct Shape { float a[HARM]; float p[HARM]; float sx, sy; float rot; };
 Shape g_shape = {{0, 0, 0, 0, 0}, {0, 0, 0, 0, 0}, 1.f, 1.f, 0.f};
 Shape g_target = g_shape;
@@ -65,13 +65,13 @@ void pickPreset(int which, Shape& t) {
     t.sx = t.sy = 1.f; t.rot = 0;
     switch (which) {
         case 0: break;                                              // circle
-        case 1: t.a[3] = 0.06f; break;                              // squircle-ish
-        case 2: t.a[0] = 0.07f; t.sy = 1.08f; break;                // egg
-        case 3: t.a[1] = 0.10f; t.rot = (esp_random() % 314) / 100.f; break;   // oval, random angle
-        case 4: t.a[2] = 0.07f; t.a[4] = 0.03f; break;              // wobbly triangle-ish
-        case 5: t.sx = 1.12f; t.sy = 0.90f; break;                  // squashed
-        case 6: t.sx = 0.92f; t.sy = 1.10f; break;                  // stretched tall
-        case 7: t.a[1] = 0.05f; t.a[2] = 0.04f; t.a[3] = 0.03f; break;   // lumpy
+        case 1: t.a[3] = 0.035f; break;                             // squircle-ish
+        case 2: t.a[0] = 0.045f; t.sy = 1.06f; break;               // egg
+        case 3: t.a[1] = 0.06f; t.rot = (esp_random() % 314) / 100.f; break;   // oval, random angle
+        case 4: t.a[2] = 0.04f; break;                              // soft triangle
+        case 5: t.sx = 1.08f; t.sy = 0.93f; break;                  // squashed
+        case 6: t.sx = 0.94f; t.sy = 1.07f; break;                  // stretched tall
+        case 7: t.a[1] = 0.03f; t.a[2] = 0.025f; break;             // gently lumpy
     }
 }
 
@@ -91,22 +91,23 @@ void stepShape(float dt) {
     g_wob += dt;
 }
 
-// Scanline-fill the blob polygon (plus outline). cx/cy centre, R base radius.
-void drawBlob(int cx, int cy, float R, uint16_t fill, uint16_t edge, float mouthBulge) {
-    float xs[POLY_N], ys[POLY_N];
+// Scanline-fill the blob silhouette. cx/cy centre, R base radius.
+void blobPoints(int cx, int cy, float R, float mouthBulge, float* xs, float* ys) {
     float squash = 1.f + g_jelly;
+    float c = cosf(g_shape.rot), sn = sinf(g_shape.rot);
     for (int i = 0; i < POLY_N; i++) {
         float t = i * (2.f * 3.14159265f / POLY_N);
         float r = 1.f;
         for (int k = 0; k < HARM; k++) r += g_shape.a[k] * cosf((k + 1) * t + g_shape.p[k]);
-        r += 0.012f * sinf(3.f * t + g_wob * 2.1f) + 0.010f * sinf(5.f * t - g_wob * 1.7f);   // idle wobble
-        // speaking: lower half bulges with the mouth
-        if (mouthBulge > 0.f && sinf(t) > 0.f) r += mouthBulge * 0.12f * sinf(t);
-        float x = cosf(t) * r * g_shape.sx * (1.f + 0.5f * (squash - 1.f) * -1.f), y = sinf(t) * r * g_shape.sy * squash;
-        float c = cosf(g_shape.rot), sn = sinf(g_shape.rot);
+        r += 0.007f * sinf(3.f * t + g_wob * 2.1f) + 0.005f * sinf(5.f * t - g_wob * 1.7f);   // idle wobble
+        if (mouthBulge > 0.f && sinf(t) > 0.f) r += mouthBulge * 0.10f * sinf(t);              // speaking: lower half bulges
+        float x = cosf(t) * r * g_shape.sx * (1.f - 0.5f * (squash - 1.f)), y = sinf(t) * r * g_shape.sy * squash;
         xs[i] = cx + (x * c - y * sn) * R;
         ys[i] = cy + (x * sn + y * c) * R;
     }
+}
+
+void fillPoly(const float* xs, const float* ys, uint16_t fill) {
     int ymin = H, ymax = 0;
     for (int i = 0; i < POLY_N; i++) { ymin = min(ymin, (int)floorf(ys[i])); ymax = max(ymax, (int)ceilf(ys[i])); }
     for (int y = max(0, ymin); y <= min(H - 1, ymax); y++) {
@@ -119,12 +120,16 @@ void drawBlob(int cx, int cy, float R, uint16_t fill, uint16_t edge, float mouth
                 xl = fminf(xl, x); xr = fmaxf(xr, x);
             }
         }
-        if (xr >= xl) g_canvas.drawFastHLine((int)xl, y, (int)(xr - xl) + 1, fill);
+        if (xr >= xl) g_canvas.drawFastHLine((int)(xl + 0.5f), y, (int)(xr - xl + 0.5f) + 1, fill);
     }
-    for (int i = 0; i < POLY_N; i++) {
-        int j = (i + 1) % POLY_N;
-        g_canvas.drawLine((int)xs[i], (int)ys[i], (int)xs[j], (int)ys[j], edge);
-    }
+}
+
+void drawBlob(int cx, int cy, float R, uint16_t fill, uint16_t edge, float mouthBulge) {
+    static float xs[POLY_N], ys[POLY_N];
+    blobPoints(cx, cy + 1, R + 1.5f, mouthBulge, xs, ys);   // soft shadow/edge: same silhouette, slightly larger
+    fillPoly(xs, ys, edge);
+    blobPoints(cx, cy, R, mouthBulge, xs, ys);
+    fillPoly(xs, ys, fill);
 }
 
 // ---------------------------------------------------------------- eyes
@@ -419,12 +424,8 @@ void drawFrame(uint32_t now) {
 
     int cx = W / 2 + (int)g_px, cy = 119 + (int)g_py;
     float R = 74.f;
-    if (m == Mode::Listening) {   // soft pulsing halo
-        float pz = 0.5f + 0.5f * sinf(now / 180.f);
-        g_canvas.fillEllipse(cx, cy, (int)(R * 1.10f + pz * 4), (int)(R * 1.10f + pz * 4), rgb(70 + (int)(pz * 40), 20, 40));
-    }
     tSparks += micros() - tt; tt = micros();
-    drawBlob(cx, cy, R, C_BLOB, rgb(200, 200, 206), m == Mode::Speaking ? A.mouth : 0.f);
+    drawBlob(cx, cy, R, C_BLOB, rgb(150, 152, 160), m == Mode::Speaking ? A.mouth : 0.f);
 
     // ---- eyes: morph toward the target shape, follow the gaze, blink ----
     Eye tl, tr; targetEyes(e, m, now, tl, tr);
@@ -489,7 +490,9 @@ void renderTask(void*) {
             drawFrame(millis());
             xSemaphoreGive(g_canvasMutex);
         }
-        vTaskDelay(pdMS_TO_TICKS(12));
+        Mode mm = g_state.mode.load();
+        bool talking = mm == Mode::Listening || mm == Mode::Thinking || mm == Mode::Speaking;
+        vTaskDelay(pdMS_TO_TICKS(talking ? 60 : 30));   // ~9 fps while audio is live, ~13 fps idle
     }
 }
 

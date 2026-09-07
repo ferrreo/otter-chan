@@ -10,6 +10,8 @@ enum : uint8_t {
     BIN_WAKE_CLIP  = 0x02,   // device->server: one whole wake-word candidate clip
     BIN_PHOTO      = 0x03,   // device->server: JPEG (photo request)
     BIN_TRACK_JPEG = 0x04,   // device->server: small JPEG for face-detect assist
+    BIN_AUDIO_ADPCM = 0x05,  // server->device: IMA ADPCM block (2048 samples -> 1028 bytes)
+    BIN_MIC_ADPCM   = 0x06,  // device->server: IMA ADPCM block of mic audio (512 samples -> 260 bytes)
 };
 
 namespace net {

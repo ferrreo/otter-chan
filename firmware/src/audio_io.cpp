@@ -139,7 +139,10 @@ void speakerStep() {
     xSemaphoreTake(g_ringMutex, portMAX_DELAY);
     bool ringEmpty = g_ringTail == g_ringHead;
     xSemaphoreGive(g_ringMutex);
-    if (g_wasPlaying && !playing && ringEmpty && g_state.mode == Mode::Speaking) g_underruns++;
+    if (g_wasPlaying && !playing && ringEmpty && g_state.mode == Mode::Speaking) {
+        g_underruns++;
+        log_w("audio: underrun #%u rx=%u played=%u", (unsigned)g_underruns.load(), (unsigned)g_rxBytes.load(), (unsigned)g_playedBytes.load());
+    }
     g_wasPlaying = playing;
     vTaskDelay(pdMS_TO_TICKS(8));
 }

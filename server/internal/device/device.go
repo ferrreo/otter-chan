@@ -15,6 +15,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"otter-chan/server/internal/audio"
 	"otter-chan/server/internal/config"
 	"otter-chan/server/internal/llm"
 	"otter-chan/server/internal/store"
@@ -32,6 +33,8 @@ const (
 	BinWakeClip  = 0x02
 	BinPhoto     = 0x03
 	BinTrackJPEG = 0x04
+	BinAudioADPCM = 0x05 // server->device: IMA ADPCM block (2048 samples, 1028 bytes)
+	BinMicADPCM   = 0x06 // device->server: IMA ADPCM block of mic audio
 
 	chunkBytes  = 4096 // 128 ms of 16 kHz s16le
 	leadSeconds = 3.0  // how far ahead of real time playback may run (robot buffers ~6 s)
@@ -95,6 +98,7 @@ type Session struct {
 	done  chan struct{}
 
 	sentBytes     atomic.Int64 // PCM bytes sent since say_start
+	adpcm         atomic.Bool  // negotiated in hello: 4:1 compressed audio both ways
 	endAfterReply atomic.Bool
 
 	pendMu      sync.Mutex
@@ -196,7 +200,13 @@ func (s *Session) onJSON(d map[string]any) {
 		if m := str(d, "mode"); m != "" {
 			s.state.Store(m)
 		}
-		s.SendJSON(s.J("hello_ack", "name", s.hub.deps.Cfg.Name, "wake_phrases", s.hub.deps.Cfg.WakePhrases))
+		s.adpcm.Store(str(d, "codec") == "adpcm")
+		ack := s.J("hello_ack", "name", s.hub.deps.Cfg.Name, "wake_phrases", s.hub.deps.Cfg.WakePhrases)
+		if s.adpcm.Load() {
+			ack["codec"] = "adpcm"
+		}
+		log.Printf("device hello: codec=%s", map[bool]string{true: "adpcm", false: "pcm"}[s.adpcm.Load()])
+		s.SendJSON(ack)
 		s.PushBots()
 	case "state":
 		s.state.Store(str(d, "state"))
@@ -259,6 +269,14 @@ func (s *Session) onBin(tag byte, payload []byte) {
 		s.umu.Lock()
 		if s.listening && len(s.utterance) < s.hub.deps.Cfg.AudioRate*2*30 {
 			s.utterance = append(s.utterance, payload...)
+		}
+		s.umu.Unlock()
+	case BinMicADPCM:
+		s.umu.Lock()
+		if s.listening && len(s.utterance) < s.hub.deps.Cfg.AudioRate*2*30 {
+			for _, v := range audio.DecodeADPCM(payload, 0) {
+				s.utterance = append(s.utterance, byte(v), byte(uint16(v)>>8))
+			}
 		}
 		s.umu.Unlock()
 	case BinWakeClip:
@@ -510,6 +528,7 @@ func (s *Session) streamPCM(ctx context.Context, pcm []byte) error {
 	t0 := time.Now()
 	sent := 0.0
 	rate := float64(s.hub.deps.Cfg.AudioRate)
+	useADPCM := s.adpcm.Load()
 	for i := 0; i < len(pcm); i += chunkBytes {
 		if s.cancel.Load() || ctx.Err() != nil {
 			return context.Canceled
@@ -518,7 +537,13 @@ func (s *Session) streamPCM(ctx context.Context, pcm []byte) error {
 		if end > len(pcm) {
 			end = len(pcm)
 		}
-		if err := s.sendBin(BinAudio, pcm[i:end]); err != nil {
+		var err error
+		if useADPCM {
+			err = s.sendBin(BinAudioADPCM, audio.EncodeADPCM(audio.Samples(pcm[i:end])))
+		} else {
+			err = s.sendBin(BinAudio, pcm[i:end])
+		}
+		if err != nil {
 			return err
 		}
 		sent += float64(end-i) / 2 / rate

@@ -54,6 +54,7 @@ void wsEvent(WStype_t type, uint8_t* payload, size_t length) {
             d["mode"] = modeName(g_state.mode.load());
             d["wake_word"] = g_settings.wakeWord;
             d["tracking"] = g_settings.tracking;
+            d["codec"] = "adpcm";   // we can send and receive IMA ADPCM; the server confirms in hello_ack
             String s; serializeJson(d, s);
             g_ws.sendTXT(s);
             break;
@@ -70,9 +71,13 @@ void wsEvent(WStype_t type, uint8_t* payload, size_t length) {
             if (g_onJson) g_onJson(doc);
             break;
         }
-        case WStype_BIN:
+        case WStype_BIN: {
+            static uint32_t rxBytes = 0, rxSince = 0, rxFrames = 0;
+            rxBytes += length; rxFrames++;
+            if (millis() - rxSince > 3000) { if (rxBytes) log_i("ws rx %.1f KB/s (%u frames)", rxBytes / 1024.f / ((millis() - rxSince) / 1000.f), (unsigned)rxFrames); rxBytes = 0; rxFrames = 0; rxSince = millis(); }
             if (length >= 1 && g_onBin) g_onBin(payload[0], payload + 1, length - 1);
             break;
+        }
         case WStype_ERROR:
             log_w("ws error");
             break;

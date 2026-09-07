@@ -26,6 +26,7 @@
 #include "behaviors.h"
 #include "provisioning.h"
 #include "wakeword.h"
+#include "adpcm.h"
 
 // ---------------------------------------------------------------- listening state
 static SemaphoreHandle_t g_utterMutex;
@@ -43,6 +44,7 @@ static bool g_conversation = false;     // wake word / button opened a session: 
 static bool g_endRequested = false;     // server asked to close the session after this reply
 static uint32_t g_sayStartedAt = 0;
 static bool g_sayEnded = false;
+static bool g_useAdpcm = false;      // negotiated with the server in hello_ack
 static size_t g_sayTotalBytes = 0;   // from say_end; 0 = unknown (older server)
 static uint32_t g_loopMaxMs = 0, g_loopLast = 0;
 // captions arrive ahead of their audio; reveal each one when playback reaches its byte offset
@@ -77,7 +79,13 @@ static void onMicFrame(const int16_t* s, size_t n, const VadResult& v) {
     if (m == Mode::Listening) {
         uint32_t now = millis();
         if (v.speech) { g_lastSpeech = now; g_heardSpeech = true; }
-        net::sendBin(BIN_AUDIO, (const uint8_t*)s, n * sizeof(int16_t), true);
+        if (g_useAdpcm) {
+            static uint8_t enc[4 + MIC_FRAME_SAMPLES / 2 + 1];
+            size_t len = adpcm::encode(s, n, enc);
+            net::sendBin(BIN_MIC_ADPCM, enc, len, true);
+        } else {
+            net::sendBin(BIN_AUDIO, (const uint8_t*)s, n * sizeof(int16_t), true);
+        }
         return;
     }
 
@@ -204,6 +212,8 @@ static void wakeFromSleep() {
 static void onServerJson(JsonDocument& d) {
     const char* type = d["type"] | "";
     if (!strcmp(type, "hello_ack")) {
+        g_useAdpcm = !strcmp(d["codec"] | "", "adpcm");
+        log_i("server codec: %s", g_useAdpcm ? "adpcm (8 KB/s)" : "pcm (32 KB/s)");
         if (d["volume"].is<int>()) { g_settings.volume = d["volume"]; audio::setVolume(g_settings.volume); }
         if (d["name"].is<const char*>()) g_state.setCaption(String("hi, I'm ") + d["name"].as<const char*>(), 3000);
         g_state.setExpression(Expression::Happy, 1500);
@@ -296,11 +306,18 @@ static void onServerJson(JsonDocument& d) {
 }
 
 static void onServerBin(uint8_t tag, const uint8_t* data, size_t len) {
-    if (tag == BIN_AUDIO) {
+    if (tag == BIN_AUDIO || tag == BIN_AUDIO_ADPCM) {
         if (g_state.mode != Mode::Speaking) setMode(Mode::Speaking);
+        const uint8_t* pcm = data; size_t bytes = len;
+        static int16_t* dec = nullptr;
+        if (tag == BIN_AUDIO_ADPCM) {
+            if (!dec) dec = (int16_t*)heap_caps_malloc(SPK_CHUNK_SAMPLES * 2 * sizeof(int16_t), MALLOC_CAP_SPIRAM);
+            size_t n = adpcm::decode(data, len, dec, SPK_CHUNK_SAMPLES * 2);
+            pcm = (const uint8_t*)dec; bytes = n * sizeof(int16_t);
+        }
         // back-pressure: the net task blocks here briefly if the ring is full
         int tries = 0;
-        while (!audio::pushPcm(data, len) && tries++ < 200) vTaskDelay(pdMS_TO_TICKS(10));
+        while (!audio::pushPcm(pcm, bytes) && tries++ < 200) vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 

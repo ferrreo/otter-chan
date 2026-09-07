@@ -11,7 +11,13 @@ one-byte tag.
 | 0x01 | both      | 16 kHz s16le mono PCM. Device→server: mic frames while listening. Server→device: TTS audio. |
 | 0x02 | device→server | one wake-word candidate clip (≤ 2.5 s PCM) |
 | 0x03 | device→server | JPEG photo (reply to `photo_request`) |
-| 0x04 | device→server | small JPEG for face-detect assist (~every 700 ms while tracking) |
+| 0x04 | device→server | small JPEG for face-detect assist (every 2 s while tracking) |
+| 0x05 | server→device | TTS audio as an IMA ADPCM block (2048 samples → 1028 bytes) when `codec: adpcm` was negotiated |
+| 0x06 | device→server | mic audio as an IMA ADPCM block (512 samples → 260 bytes) when negotiated |
+
+ADPCM blocks are self-contained (4-byte header: int16 predictor, uint8 step index, pad). The device
+offers `"codec":"adpcm"` in `hello`; the server confirms with `"codec":"adpcm"` in `hello_ack`. The TLS
+WebSocket on the ESP32-S3 sustains only ~25 KB/s, below the 32 KB/s raw PCM needs, so ADPCM (8 KB/s) is the norm.
 
 ## Device → server (JSON)
 
