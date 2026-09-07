@@ -92,7 +92,8 @@ void connectWs() {
     g_ws.onEvent(wsEvent);
     if (ssl) g_ws.beginSslWithCA(host.c_str(), port, path.c_str(), ISRG_ROOT_X1);
     else g_ws.begin(host.c_str(), port, path.c_str());
-    log_i("ws -> %s:%u%s", host.c_str(), port, path.c_str());
+    log_i("ws -> %s:%u%s (internal heap free %u, largest %u)", host.c_str(), port, path.c_str(),
+          (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
 }
 
 void netTask(void*) {

@@ -5,7 +5,7 @@
 #define MWW_WAKE_WORD "Tarquin"
 #define MWW_PROBABILITY_CUTOFF 191
 #define MWW_SLIDING_WINDOW 5
-#define MWW_TENSOR_ARENA 30000
+#define MWW_TENSOR_ARENA 36000
 #define MWW_FEATURE_STEP_MS 10
 #define MWW_MODEL_SIZE 62304
 alignas(16) static const unsigned char MWW_MODEL[] = {

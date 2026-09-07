@@ -80,8 +80,9 @@ bool setupModel() {
     g_ops.AddSqueeze(); g_ops.AddExpandDims(); g_ops.AddSub(); g_ops.AddSplitV(); g_ops.AddSplit();
     const tflite::Model* model = tflite::GetModel(MWW_MODEL);
     if (model->version() != TFLITE_SCHEMA_VERSION) { log_e("mww: schema %lu != %d", (unsigned long)model->version(), TFLITE_SCHEMA_VERSION); return false; }
-    size_t arena = (MWW_TENSOR_ARENA * 3 + 15) & ~15;   // generous; trimmed after a successful probe
-    g_arena = (uint8_t*)heap_caps_aligned_alloc(16, arena, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    // Internal RAM is precious (TLS needs ~40 KB); keep the arena modest and fall back to PSRAM.
+    size_t arena = (MWW_TENSOR_ARENA * 3 / 2 + 15) & ~15;
+    g_arena = (uint8_t*)heap_caps_aligned_alloc(16, arena, MALLOC_CAP_SPIRAM);   // PSRAM: internal RAM is for TLS/WiFi
     if (!g_arena) { log_e("mww: no RAM for arena"); return false; }
     // streaming models keep state in resource variables; they need their own allocator
     g_varArena = (uint8_t*)heap_caps_aligned_alloc(16, 1024, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
