@@ -571,11 +571,21 @@ func (s *Session) background() {
 		for _, t := range s.hub.deps.Store.PopDueTimers() {
 			s.Announce("[surprised] Your reminder, sir: "+t.Label+".", "", true)
 		}
+		// Speak queued announcements when nothing else is happening. "listening" counts too (the mic
+		// stays open for minutes in a session), as long as the user isn't mid-sentence.
 		st := s.State()
-		if (st == "standby" || st == "muted") && !s.busy.Load() {
+		s.umu.Lock()
+		midSentence := s.listening && len(s.utterance) > s.hub.deps.Cfg.AudioRate*2/2 // > 0.5 s captured
+		s.umu.Unlock()
+		if (st == "standby" || st == "muted" || (st == "listening" && !midSentence)) && !s.busy.Load() {
 			select {
 			case q := <-s.queue:
-				s.startPipeline(func(ctx context.Context) { s.speak(ctx, q.text, q.expr, false) })
+				log.Printf("announce (%s): %q", q.from, q.text)
+				s.startPipeline(func(ctx context.Context) {
+					if err := s.speak(ctx, q.text, q.expr, st == "listening"); err != nil && !errors.Is(err, context.Canceled) {
+						log.Printf("announce failed: %v", err)
+					}
+				})
 			default:
 			}
 		}
