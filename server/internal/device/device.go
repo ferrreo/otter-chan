@@ -448,6 +448,7 @@ func (s *Session) RespondTo(ctx context.Context, text string, images [][]byte) (
 			sayErr = s.streamPCM(ctx, pcm)
 		}
 	}
+	onGesture := func(g string) { s.SendJSON(s.J("gesture", "name", g)) }
 	reply, err := s.hub.deps.LLM.Respond(ctx, text, images, s.runTool, func(expr, sentence string) {
 		if s.cancel.Load() || sayErr != nil {
 			return
@@ -456,7 +457,7 @@ func (s *Session) RespondTo(ctx context.Context, text string, images [][]byte) (
 		jobs <- j
 		pending = append(pending, j)
 		drain(1) // keep exactly one sentence rendering ahead
-	})
+	}, onGesture)
 	close(jobs)
 	drain(0)
 	if !started {

@@ -95,6 +95,7 @@ void stopAll() {
 void applyDirection() {
     AudioDir want = g_requested.load();
     if (want == g_current) return;
+    log_i("audio: %s -> %s", g_current == AudioDir::Mic ? "mic" : g_current == AudioDir::Speaker ? "spk" : "off", want == AudioDir::Mic ? "mic" : want == AudioDir::Speaker ? "spk" : "off");
     switch (want) {
         case AudioDir::Mic: startMic(); break;
         case AudioDir::Speaker: startSpeaker(); break;
@@ -111,6 +112,8 @@ void micStep() {
     idx = (idx + 1) % 3;
     static int primed = 0;
     if (primed < 2) { primed++; return; }
+    static uint32_t frames = 0, lastLog = 0;
+    if (++frames % 940 == 0) log_i("audio: mic alive, %u frames", (unsigned)frames);   // ~every 30 s
     VadResult v = runVad(g_micBuf[done], MIC_FRAME_SAMPLES);
     if (millis() - g_micStartedMs < MIC_SETTLE_MS) { v.speech = false; g_speechRunMs = 0; }   // codec switch-over / echo tail
     if (g_handler) g_handler(g_micBuf[done], MIC_FRAME_SAMPLES, v);

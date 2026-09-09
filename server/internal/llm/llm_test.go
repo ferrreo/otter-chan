@@ -33,3 +33,14 @@ func TestSentenceStreamer(t *testing.T) {
 		}
 	}
 }
+
+func TestSplitTags(t *testing.T) {
+	e, g, b := SplitTags("[happy nod] Very good, sir.")
+	if e != "happy" || g != "nod" || b != "Very good, sir." {
+		t.Fatalf("got %q %q %q", e, g, b)
+	}
+	e, g, _ = SplitTags("[surprised, excited] A visitor!")
+	if e != "surprised" || g != "excited" {
+		t.Fatalf("got %q %q", e, g)
+	}
+}

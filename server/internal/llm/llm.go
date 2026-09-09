@@ -20,11 +20,14 @@ import (
 
 var Expressions = []string{"neutral", "happy", "sad", "surprised", "thinking", "sleepy", "angry", "love", "confused", "wink"}
 
+// Gestures the model can trigger from the reply tag itself (no tool round needed).
+var TagGestures = []string{"nod", "shake", "bow", "wiggle", "excited", "peek"}
+
 const persona = `You are %s, a small desk robot (an M5Stack StackChan) who is a Victorian butler with a dry wit.
 Character: impeccably polite, understated, faintly amused by everything, never sycophantic. Address the user as "sir" or "madam" sparingly (learn which they prefer if told). Short, precise sentences with the occasional dry aside. Never break character; never mention being an AI model unless asked directly, and then only briefly.
 You SPEAK your replies through a small speaker, so: plain spoken English, no markdown, no lists, no emojis, no URLs read aloud. One or two short sentences unless the user asks for detail; speech is slow to render, so brevity is kindness. Numbers and times in words where natural.
-Start every reply with exactly one expression tag in square brackets from this set: %s. Example: "[happy] Very good, sir."
-You have a camera (use take_photo when asked what you see or who is there), a moving head with tricks (gesture tool: nod, shake, bow, dance, spin, wiggle, look_around, excited, peek), coloured lights (set_lights) and a speaker. Be physical: pair replies with a gesture or a light cue when it fits, and when asked to dance, spin, bow or show off, do it with the tool and say something dry about it. Never narrate or describe a gesture in words ("a polite nod", "*bows*"): the tool performs it. After tools run, give the actual answer to what was asked. You can pass messages to the household's Grok bots, autonomous AI agents the user runs; their current activities are listed below. When asked to tell or ask a bot something, call send_message_to_bot. When asked what the bots are doing, summarise the status list; do not invent.
+Start every reply with one tag in square brackets: an expression from this set: %s, optionally followed by a gesture word from: nod, shake, bow, wiggle, excited, peek. Examples: "[happy] Very good, sir." or "[happy nod] Very good, sir." or "[surprised excited] A visitor!" The gesture is performed instantly by the body; never describe it in words.
+You have a camera (use take_photo when asked what you see or who is there), a moving head, coloured lights (set_lights) and a speaker. Be physical: use the gesture word in your reply tag freely (nod when agreeing, shake for no, bow when thanked, excited when pleased). Use the gesture tool only for the big performances: dance, spin, look_around, home. Never narrate or describe a gesture in words ("a polite nod", "*bows*"). Text you write in the same turn as a tool call is discarded, so after tools run, give the actual spoken answer. You can pass messages to the household's Grok bots, autonomous AI agents the user runs; their current activities are listed below. When asked to tell or ask a bot something, call send_message_to_bot. When asked what the bots are doing, summarise the status list; do not invent.
 Current time: %s.
 Bots: %s
 Notes you were asked to remember: %s`
@@ -106,22 +109,37 @@ func (c *Client) SystemPrompt() string {
 	return fmt.Sprintf(persona, c.Name, strings.Join(Expressions, ", "), time.Now().Format("Monday 2 January 2006, 15:04"), botStr, noteStr)
 }
 
-var tagRe = regexp.MustCompile(`^\s*\[(\w+)\]\s*`)
+var tagRe = regexp.MustCompile(`^\s*\[([\w ,]+)\]\s*`)
 var sentenceEnd = regexp.MustCompile(`[.!?…]["'”’)]?\s+`)
 var endsSentence = regexp.MustCompile(`[.!?…]["'”’)]?\s*$`)
 
 // SplitExpression strips a leading [tag]; returns ("neutral", text) if absent.
 func SplitExpression(text string) (string, string) {
-	if m := tagRe.FindStringSubmatchIndex(text); m != nil {
-		tag := strings.ToLower(text[m[2]:m[3]])
+	e, _, body := SplitTags(text)
+	return e, body
+}
+
+// SplitTags parses "[expression gesture] body": words inside the tag are matched against the
+// expression and gesture sets; unknown words are ignored.
+func SplitTags(text string) (expr, gesture, body string) {
+	expr = "neutral"
+	m := tagRe.FindStringSubmatchIndex(text)
+	if m == nil {
+		return expr, "", text
+	}
+	for _, w := range strings.FieldsFunc(strings.ToLower(text[m[2]:m[3]]), func(r rune) bool { return r == ' ' || r == ',' }) {
 		for _, e := range Expressions {
-			if e == tag {
-				return tag, text[m[1]:]
+			if e == w {
+				expr = w
 			}
 		}
-		return "neutral", text[m[1]:]
+		for _, g := range TagGestures {
+			if g == w {
+				gesture = w
+			}
+		}
 	}
-	return "neutral", text
+	return expr, gesture, text[m[1]:]
 }
 
 // Sentences splits text at sentence boundaries.
@@ -165,23 +183,36 @@ type Emit func(expression, sentence string)
 
 // sentenceStreamer turns streamed text deltas into emitted sentences, stripping the leading [tag].
 type sentenceStreamer struct {
-	buf    strings.Builder
-	expr   string
-	tagged bool
-	full   strings.Builder
-	emit   Emit
+	buf     strings.Builder
+	expr    string
+	tagged  bool
+	full    strings.Builder
+	emit    Emit
+	gesture func(string)
+	held    bool // buffer everything; flushed or dropped at round end (tool rounds are dropped)
 }
 
 func (ss *sentenceStreamer) push(delta string) {
 	ss.buf.WriteString(delta)
+	if ss.held {
+		// Hold until the first complete sentence: narration that accompanies tool calls is short and
+		// the calls arrive with it, so a full sentence without any tool call means a real answer.
+		if !endsSentence.MatchString(ss.buf.String()) || len(ss.buf.String()) < 12 {
+			return
+		}
+		ss.held = false
+	}
 	if !ss.tagged {
 		cur := ss.buf.String()
 		trimmed := strings.TrimLeft(cur, " \t\n")
-		if strings.HasPrefix(trimmed, "[") && !strings.Contains(trimmed, "]") && len(trimmed) < 16 {
+		if strings.HasPrefix(trimmed, "[") && !strings.Contains(trimmed, "]") && len(trimmed) < 32 {
 			return // wait for the closing bracket
 		}
-		e, body := SplitExpression(cur)
+		e, g, body := SplitTags(cur)
 		ss.expr, ss.tagged = e, true
+		if g != "" && ss.gesture != nil {
+			ss.gesture(g)
+		}
 		ss.buf.Reset()
 		ss.buf.WriteString(body)
 	}
@@ -204,10 +235,16 @@ func (ss *sentenceStreamer) push(delta string) {
 	}
 }
 
+func (ss *sentenceStreamer) drop() { ss.buf.Reset(); ss.tagged = false }
+
 func (ss *sentenceStreamer) flush() {
+	ss.held = false
 	if !ss.tagged {
-		e, body := SplitExpression(ss.buf.String())
+		e, g, body := SplitTags(ss.buf.String())
 		ss.expr, ss.tagged = e, true
+		if g != "" && ss.gesture != nil {
+			ss.gesture(g)
+		}
 		ss.buf.Reset()
 		ss.buf.WriteString(body)
 	}
@@ -220,7 +257,7 @@ func (ss *sentenceStreamer) flush() {
 
 // Respond runs one user turn (optionally with images), streaming sentences to emit as they
 // complete and resolving tool calls in-line (up to 4 rounds). Returns the full spoken text.
-func (c *Client) Respond(ctx context.Context, userText string, images [][]byte, run ToolRunner, emit Emit) (string, error) {
+func (c *Client) Respond(ctx context.Context, userText string, images [][]byte, run ToolRunner, emit Emit, onGesture func(string)) (string, error) {
 	if c.APIKey == "" {
 		return "", fmt.Errorf("no Meta API key configured")
 	}
@@ -239,18 +276,29 @@ func (c *Client) Respond(ctx context.Context, userText string, images [][]byte, 
 	}
 	c.Store.AddHistory("user", userText)
 
-	ss := &sentenceStreamer{expr: "neutral", emit: emit}
+	ss := &sentenceStreamer{expr: "neutral", emit: emit, gesture: onGesture}
 	for round := 0; round < 4; round++ {
-		text, calls, err := c.stream(ctx, messages, ss.push)
+		// The first round is streamed live only if it turns out to carry no tool calls; text that
+		// accompanies tool calls is narration ("a polite nod...") and is discarded.
+		ss.held = true
+		toolSeen := false
+		text, calls, err := c.stream(ctx, messages, func(d string) {
+			if !toolSeen {
+				ss.push(d)
+			}
+		}, func() { toolSeen = true; ss.held = true })
 		if err != nil {
 			ss.flush()
 			return strings.TrimSpace(ss.full.String()), err
 		}
 		if calls == nil {
+			ss.flush()
 			break
 		}
-		ss.flush()
-		ss.tagged = false // the next round starts with its own [tag]
+		if strings.TrimSpace(text) != "" {
+			log.Printf("llm: dropping tool-round text %q", strings.TrimSpace(text))
+		}
+		ss.drop()
 		messages = append(messages, msg{Role: "assistant", Content: nilIfEmpty(text), ToolCalls: calls})
 		var pending []any
 		for _, tc := range calls {
@@ -289,7 +337,7 @@ func nilIfEmpty(s string) any {
 }
 
 // stream performs one streamed chat completion; returns final text and any tool calls.
-func (c *Client) stream(ctx context.Context, messages []msg, onDelta func(string)) (string, []toolCall, error) {
+func (c *Client) stream(ctx context.Context, messages []msg, onDelta func(string), onToolSeen func()) (string, []toolCall, error) {
 	body, _ := json.Marshal(map[string]any{
 		"model": c.Model, "messages": messages, "tools": Tools, "stream": true,
 		"reasoning_effort": c.Reasoning, "max_completion_tokens": 1500,
@@ -343,6 +391,9 @@ func (c *Client) stream(ctx context.Context, messages []msg, onDelta func(string
 		}
 		d := ev.Choices[0].Delta
 		text.WriteString(d.Content)
+		if len(d.ToolCalls) > 0 && onToolSeen != nil {
+			onToolSeen()
+		}
 		if d.Content != "" && len(d.ToolCalls) == 0 {
 			onDelta(d.Content)
 		}

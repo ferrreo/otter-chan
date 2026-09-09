@@ -32,6 +32,7 @@
 static SemaphoreHandle_t g_utterMutex;
 static uint32_t g_listenStart = 0, g_lastSpeech = 0, g_listenWindowMs = LISTEN_NO_SPEECH_MS;
 static bool g_heardSpeech = false;
+static uint32_t g_speechMs = 0;        // speech accumulated in this utterance
 static int16_t* g_wakeBuf;            // ring buffer for wake-word candidate
 static size_t g_wakeLen = 0;          // samples currently captured into wake clip
 static bool g_wakeCapturing = false;
@@ -78,7 +79,7 @@ static void onMicFrame(const int16_t* s, size_t n, const VadResult& v) {
 
     if (m == Mode::Listening) {
         uint32_t now = millis();
-        if (v.speech) { g_lastSpeech = now; g_heardSpeech = true; }
+        if (v.speech) { g_lastSpeech = now; g_speechMs += frameMs; if (g_speechMs >= 350) g_heardSpeech = true; }   // the wake word's tail alone must not count
         if (g_useAdpcm) {
             static uint8_t enc[4 + MIC_FRAME_SAMPLES / 2 + 1];
             size_t len = adpcm::encode(s, n, enc);
@@ -139,7 +140,7 @@ static void setMode(Mode m) {
             break;
         case Mode::Listening:
             audio::setDirection(AudioDir::Mic);
-            g_listenStart = millis(); g_lastSpeech = g_listenStart; g_heardSpeech = false;
+            g_listenStart = millis(); g_lastSpeech = g_listenStart; g_heardSpeech = false; g_speechMs = 0;
             g_listenWindowMs = g_conversation ? CONVERSATION_IDLE_MS : (g_followupPending ? LISTEN_FOLLOWUP_MS : LISTEN_NO_SPEECH_MS);
             g_followupPending = false;
             leds::set(leds::Pattern::Listening);

@@ -251,7 +251,7 @@ func (a *API) ask(w http.ResponseWriter, r *http.Request) {
 		}
 		return map[string]any{"error": "robot offline; tool unavailable"}, nil
 	}
-	_, err := a.LLM.Respond(r.Context(), in.Text, nil, run, func(e, sen string) { expr = e; parts = append(parts, sen) })
+	_, err := a.LLM.Respond(r.Context(), in.Text, nil, run, func(e, sen string) { expr = e; parts = append(parts, sen) }, nil)
 	if err != nil {
 		fail(w, 502, err.Error())
 		return
