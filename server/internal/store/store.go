@@ -160,7 +160,7 @@ type BotView struct {
 	AgeS     int    `json:"age_s"`
 }
 
-// Bots returns bots newest first; stale ones read as offline.
+// Bots returns bots in name order (the robot's cards must not shuffle); stale ones read as offline.
 func (s *Store) Bots(limit int) []BotView {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -168,7 +168,15 @@ func (s *Store) Bots(limit int) []BotView {
 	for _, b := range s.d.Bots {
 		list = append(list, b)
 	}
-	sort.Slice(list, func(i, j int) bool { return list[i].Updated > list[j].Updated })
+	// Busy bots first (so an idle heartbeat doesn't push an active chip off the small screen), then newest.
+	sort.Slice(list, func(i, j int) bool {
+		bi := list[i].Activity != "idle" && list[i].Activity != "offline" && list[i].Activity != "done"
+		bj := list[j].Activity != "idle" && list[j].Activity != "offline" && list[j].Activity != "done"
+		if bi != bj {
+			return bi
+		}
+		return list[i].Name < list[j].Name // stable within a group: the robot's cards must not shuffle
+	})
 	out := []BotView{}
 	for i, b := range list {
 		if limit > 0 && i >= limit {

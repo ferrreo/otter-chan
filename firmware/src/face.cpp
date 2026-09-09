@@ -245,6 +245,16 @@ const char* activityWord(const char* a) {
     return "idle";
 }
 
+// Compact bot chips: avatar + short name + activity colour; up to 4 across the top.
+void shortName(const char* full, char* out, size_t n) {
+    const char* p = full;
+    if (!strncasecmp(p, "grok-", 5)) p += 5;
+    else if (!strncasecmp(p, "grok", 4)) p += 4;
+    if (*p == '-' || *p == '_') p++;
+    strncpy(out, p, n - 1); out[n - 1] = 0;
+    if (out[0]) out[0] = toupper(out[0]);
+}
+
 void botsRow(uint32_t now) {
     g_state.lock();
     int n = g_state.botCount;
@@ -252,39 +262,31 @@ void botsRow(uint32_t now) {
     for (int i = 0; i < n; i++) bots[i] = g_state.bots[i];
     g_state.unlock();
     if (n == 0) return;
+    if (n > 4) n = 4;
     g_canvas.setFont(&fonts::Font0);
     g_canvas.setTextSize(1);
     g_canvas.setTextDatum(middle_left);
     int x = 8, y = 30;
-    for (int i = 0; i < n && i < 4; i++) {
+    int avail = W - 16 - 40;                 // leave the battery corner alone
+    int chipW = min(96, avail / n - 26);      // avatar (22) + gap (4) + chip
+    for (int i = 0; i < n; i++) {
         RGB c = kPal[i % 6];
         bool active = strcmp(bots[i].activity, "idle") && strcmp(bots[i].activity, "offline") && strcmp(bots[i].activity, "done");
-        bool live = now - bots[i].updatedMs < 120000;
+        bool live = now - bots[i].updatedMs < 30 * 60 * 1000;
         if (!live) c = mix(c, {60, 60, 66}, 0.7f);
-        char nm[10]; strncpy(nm, bots[i].name, 9); nm[9] = 0;
-        char st[12]; strncpy(st, activityWord(bots[i].activity), 11); st[11] = 0;
-        int wName = g_canvas.textWidth(nm), wSt = g_canvas.textWidth(st);
-        int chipW = 10 + wName + 6 + (active ? 14 : 0) + wSt + 8;
-        if (x + 24 + chipW > W - 40) break;
+        char nm[8]; shortName(bots[i].name, nm, sizeof(nm));
+        while (nm[0] && g_canvas.textWidth(nm) > chipW - 24) nm[strlen(nm) - 1] = 0;
         botAvatar(x + 11, y, 10, c, now, i);
-        // chip
         g_canvas.fillRoundRect(x + 24, y - 9, chipW, 18, 9, C_CHIP);
         g_canvas.drawRoundRect(x + 24, y - 9, chipW, 18, 9, rgb(mix(c, {0, 0, 0}, 0.4f)));
-        int tx = x + 24 + 8;
         g_canvas.setTextColor(C_TXT, C_CHIP);
-        g_canvas.drawString(nm, tx, y);
-        tx += wName + 6;
-        if (active) {   // animated ••• in the bot's colour
-            for (int d = 0; d < 3; d++) {
-                float ph = fmodf(now / 300.f - d * 0.33f, 1.f);
-                uint16_t dc = rgb(mix(c, {40, 40, 46}, ph));
-                g_canvas.fillCircle(tx + d * 4, y, 1, dc);
-            }
-            tx += 14;
-        }
-        g_canvas.setTextColor(rgb(active ? c : RGB{140, 142, 155}), C_CHIP);
-        g_canvas.drawString(st, tx, y);
-        x += 24 + chipW + 8;
+        g_canvas.drawString(nm, x + 24 + 8, y);
+        // activity: pulsing dot in the bot colour (working), steady dim dot (idle/done), hollow (offline)
+        int dx = x + 24 + chipW - 9;
+        if (active) g_canvas.fillCircle(dx, y, 2 + (int)(1.5f * fabsf(sinf(now / 250.f + i))), rgb(c));
+        else if (!strcmp(bots[i].activity, "offline") || !live) g_canvas.drawCircle(dx, y, 3, rgb(mix(c, {40, 40, 46}, 0.5f)));
+        else g_canvas.fillCircle(dx, y, 2, rgb(mix(c, {40, 40, 46}, 0.5f)));
+        x += 24 + chipW + 6;
     }
 }
 

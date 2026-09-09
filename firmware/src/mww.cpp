@@ -179,7 +179,7 @@ bool begin() {
     const size_t streamBytes = AUDIO_RATE * sizeof(int16_t);
     uint8_t* storage = (uint8_t*)heap_caps_malloc(streamBytes + 1, MALLOC_CAP_SPIRAM);
     g_stream = xStreamBufferCreateStatic(streamBytes, 1, storage, &g_streamCtl);
-    xTaskCreatePinnedToCoreWithCaps(detectTask, "mww", 8192, nullptr, 5, nullptr, 0, MALLOC_CAP_SPIRAM);   // core 0 (WiFi core): leaves core 1 to audio, face and the main loop
+    xTaskCreatePinnedToCoreWithCaps(detectTask, "mww", 8192, nullptr, 2, nullptr, 1, MALLOC_CAP_SPIRAM);   // core 1, above the face renderer; core 0 keeps WiFi/TLS + camera
     g_ok = true; g_enabled = true;
     return true;
 }

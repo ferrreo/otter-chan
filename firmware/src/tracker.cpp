@@ -198,6 +198,30 @@ void talkMotion(uint32_t now) {
     M5StackChan.Motion.move(constrain(g_yaw + dy, YAW_MIN, YAW_MAX), constrain(g_pitch + dp, PITCH_MIN, PITCH_MAX), 300);
 }
 
+// Half-resolution grayscale JPEG of the frame (320x240 from VGA RGB565): ~5x cheaper than the full
+// colour frame to encode and upload, and plenty for face detection at room distance.
+static bool halfGrayJpeg(camera_fb_t* fb, int quality, uint8_t** out, size_t* len) {
+    const int w = fb->width / 2, h = fb->height / 2;
+    static uint8_t* gray = nullptr;
+    if (!gray) gray = (uint8_t*)heap_caps_malloc((CAM_W / 2) * (CAM_H / 2), MALLOC_CAP_SPIRAM);
+    if (!gray || fb->format != PIXFORMAT_RGB565) return false;
+    for (int y = 0; y < h; y++) {
+        const uint16_t* row = (const uint16_t*)(fb->buf + (y * 2) * fb->width * 2);
+        uint8_t* dst = gray + y * w;
+        for (int x = 0; x < w; x++) {
+            uint16_t p = __builtin_bswap16(row[x * 2]);
+            int r = (p >> 11) & 31, g = (p >> 5) & 63, b = p & 31;
+            dst[x] = (uint8_t)((r * 8 * 77 + g * 4 * 150 + b * 8 * 29) >> 8);
+        }
+    }
+    JpegSink sink{(uint8_t*)heap_caps_malloc(64 * 1024, MALLOC_CAP_SPIRAM), 0, 64 * 1024};
+    if (!sink.buf) return false;
+    bool ok = fmt2jpg_cb(gray, w * h, w, h, PIXFORMAT_GRAYSCALE, quality, jpegSinkCb, &sink) && sink.len > 0;
+    if (!ok) { free(sink.buf); return false; }
+    *out = sink.buf; *len = sink.len;
+    return true;
+}
+
 void trackTask(void*) {
     uint32_t lastAssist = 0;
     for (;;) {
@@ -216,7 +240,7 @@ void trackTask(void*) {
             uint32_t now = millis();
             if (fb && TRK_ASSIST_MS && net::connected() && now - lastAssist >= TRK_ASSIST_MS) {
                 uint8_t* jpg = nullptr; size_t jl = 0;
-                if (frameToJpegPsram(fb, TRK_ASSIST_JPEG_Q, &jpg, &jl)) {
+                if (halfGrayJpeg(fb, TRK_ASSIST_JPEG_Q, &jpg, &jl)) {
                     bool ok = net::sendBin(BIN_TRACK_JPEG, jpg, jl, true);
                     static int nAssist = 0;
                     if ((nAssist++ % 20) == 0) log_i("assist jpeg %u bytes sent=%d", (unsigned)jl, (int)ok);

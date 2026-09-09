@@ -63,10 +63,10 @@ constexpr float    TRK_GAIN            = 0.7f;    // fraction of the angular err
 constexpr int      TRK_YAW_SIGN        = 1;       // flip if the head turns away from you
 constexpr int      TRK_PITCH_SIGN      = 1;
 constexpr uint32_t TRK_LOST_MS         = 12000;    // return to home after this long without target
-constexpr uint32_t TRK_POLL_MS         = 400;     // camera poll interval in standby (DMA idles between grabs)
-constexpr uint32_t TRK_ASSIST_MS       = 500;     // server face-detect assist interval (0 = off); only while idle
+constexpr uint32_t TRK_POLL_MS         = 500;     // camera poll interval in standby (DMA idles between grabs)
+constexpr uint32_t TRK_ASSIST_MS       = 1000;    // server face-detect assist interval (0 = off); only while idle
 constexpr uint32_t TRK_FACE_VALID_MS   = 3000;    // how long a server face fix steers the head
-constexpr int      TRK_ASSIST_JPEG_Q   = 30;
+constexpr int      TRK_ASSIST_JPEG_Q   = 40;      // 320x240 grayscale JPEG (~6 KB)
 
 // ---- Servo ranges (BSP units: 10 = 1 degree) ----
 constexpr int      YAW_MIN             = -900;
