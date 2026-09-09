@@ -467,9 +467,10 @@ void loop() {
     if (m == Mode::Speaking && g_sayEnded && allPlayed && audio::isPlaybackIdle()) {
         revealCaptions();
         g_state.mouthOpen = 0.f;
-        if (g_endRequested) { g_conversation = false; g_endRequested = false; audio::playChime(1); setMode(Mode::Standby); g_state.setCaption("", 1); }
+        g_state.expireCaption(10000);   // whatever he just said lingers 10 s, then clears
+        if (g_endRequested) { g_conversation = false; g_endRequested = false; audio::playChime(1); setMode(Mode::Standby); }
         else if (g_conversation || g_followupPending) { setMode(Mode::Listening); }
-        else { setMode(Mode::Standby); g_state.setCaption("", 1); }
+        else { setMode(Mode::Standby); }
     }
 
     behaviors::tick();

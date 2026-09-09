@@ -66,6 +66,10 @@ struct RobotState {
         lock(); caption = s; captionUntilMs = ms ? millis() + ms : 0; unlock();
         if (onUiChange) onUiChange();
     }
+    void expireCaption(uint32_t ms) {   // keep whatever is showing, but only for ms more
+        lock(); if (caption.length()) captionUntilMs = millis() + ms; unlock();
+        if (onUiChange) onUiChange();
+    }
     void setExpression(Expression e, uint32_t ms = 0) {
         expression = e; expressionUntilMs = ms ? millis() + ms : 0;
     }
